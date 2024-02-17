@@ -45,8 +45,6 @@ class Page {
             return true;
         }
 
-        
-
     public:
         struct PageHeader {
             int recordsInPage; // Number of records in the page
