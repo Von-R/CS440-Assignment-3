@@ -26,16 +26,27 @@ public:
         cout << "\tBIO: " << bio << "\n";
         cout << "\tMANAGER_ID: " << manager_id << "\n";
     }
+
+    // $ marks beginning of record
+    // # marks end of field
+    // % marks end of record
+    string toString() const {
+        return "$" + to_string(id) + "#" + name + "#" + bio + "#" + to_string(manager_id) + "%";
+    }
+
+    bitset<8> getHashID() const {
+        return bitset<8>(id % 216);
+    }
 };
 
 struct FileHeader {
     
     int totalBuckets; // Total number of buckets, including overflow
-    int nextBucketToSplit // Next bucket in line for splitting
-    int currentLevel // Current level of the hash table
-    int totalRecords // Total number of records in the index
-    int firstFreeOverflowBucketOffset // Offset for the first free overflow bucket (for quick allocation)
-    ... // Other global parameters like hash table parameters, performance metrics, etc.
+    int nextBucketToSplit; // Next bucket in line for splitting
+    int currentLevel; // Current level of the hash table
+    int totalRecords; // Total number of records in the index
+    int firstFreeOverflowBucketOffset; // Offset for the first free overflow bucket (for quick allocation)
+    // Other global parameters like hash table parameters, performance metrics, etc.
 };
 
 // Bucket Header Structure
@@ -63,8 +74,7 @@ private:
     string fName;      // Name of index file
 
     // Read a record from the file
-    // Successive calls will read successive records, as long as read pointer isn't moved 
-    // by other methods
+    // Successive calls will read successive records, as long as read pointer isn't moved by other methods
     Record readEmployeeRecord(ifstream &file){
         string line;
         getline(file, line);
@@ -78,6 +88,7 @@ private:
     }
 
     // Insert new record into index
+    // Do not fill memory with records, simply write one at a time to the index file
     void insertRecord(Record record) {
 
         // No records written to index yet
@@ -97,7 +108,7 @@ private:
             3. If overflow bucket exists, seek to it, read bucket header and repeat process
         
         */
-
+        numRecords++;
         // Take necessary steps if capacity is reached:
 		// increase n; increase i (if necessary); place records in the new bucket that may have been originally misplaced due to a bit flip
 

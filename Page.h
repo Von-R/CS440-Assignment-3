@@ -4,17 +4,20 @@
 # include <string>
 # include <vector>
 # include <algorithm>
+#include <iomanip>
+#include <fstream> // Include the necessary header file
 # include "classes.h"
 
+const int MAX_PAGES = 4;
+
 class Page {
-        static const int page_size = BLOCK_SIZE; // Define the size of each page (4KB)
+        //static const int BLOCK_SIZE = BLOCK_SIZE; // Define the size of each page (4KB)
         int pageNumber; // Identifier for the page
         Page *nextPage; // Pointer to the next page in the list
+        Page *lastPage; // Pointer to the last page in the list
         // These are static members of the Page class because the offsetArray and dataVector sizes will be shared by all instances of the Page class
-        int static offsetArraySize;
         int static dataVectorSize;
         static const char sentinelValue = '\0'; // Sentinel value to indicate empty space in the data vector
-        vector<int> offsetArray; // Vector to store the offsets of the records in the page
         vector<char> data; // Vector to store the data in the page
 
         bool dataVectorEmpty() {
@@ -28,22 +31,14 @@ class Page {
 
         // Returns the size of the data vector by counting non-sentinel values
         // Does not modify data
-        int dataSize(const std::vector<char>& data, char sentinelValue) {
-            //cout << "dataSize begin" << endl;
+        int elemsInDataVector(const std::vector<char>& data, char sentinelValue) {
+            //cout << "elemsInDataVector begin" << endl;
             return std::count_if(data.begin(), data.end(), [sentinelValue](char value) {
             return value != sentinelValue;
             });
-            //cout << "dataSize end" << endl;
+            //cout << "elemsInDataVector end" << endl;
         }
 
-        bool offsetArrayEmpty() {
-            for (int i = 0; i < offsetArray.size(); i++) {
-                if (offsetArray[i] != -1) {
-                    return false;
-                }
-            }
-            return true;
-        }
 
     public:
         struct PageHeader {
@@ -56,18 +51,13 @@ class Page {
         // Constructor for the Page class
         Page(int pageNum) : pageNumber(pageNum), nextPage(nullptr) {
             cout << "Page constructor begin" << endl;
+            int indexPage = false;
 
-            // Initialize the offsetArray to its maximum potential size first; sentinel value is -1
-            offsetArray = get<0>(initializationResults); // Instance-specific offsetArray is initialized with 0's
-            cout << "Value of offsetArray[0]: " << offsetArray[0] << endl;
-
-            
-            // size of offset array, 2nd element of tuple returned by initializeValues
-            offsetArraySize = get<1>(initializationResults); // Update this based on actual logic
-            cout << "Value of offsetArraySize: " << offsetArraySize << endl;
-
+            if (pageNum == 0) {
+                indexPage = true;
+            }
             // Size of data vector; calculated based on the size of the offset array and the size of the page header
-            dataVectorSize = page_size - offsetArraySize - sizeof(PageHeader);
+            dataVectorSize = BLOCK_SIZE - sizeof(PageHeader);
             cout << "Value of dataVectorSize: " << dataVectorSize << endl;
             // Initialize data vector to its maximum potential size first; sentinel value is -1
             data.resize(dataVectorSize, sentinelValue);
@@ -80,16 +70,7 @@ class Page {
             cout << "Page constructor end" << endl;
         }
 
-        // Returns the size of the offset array by count non-sentinel values
-        // Does not modify offsetArray
-        int offsetSize() {
-            int count = std::count_if(offsetArray.begin(), offsetArray.end(), [](int value) {
-                return value != -1;
-            });
-            return count;
-        }
-
-        int dataSize(const std::vector<char>& data) {
+        int elemsInDataVector(const std::vector<char>& data) {
             int count = std::count_if(data.begin(), data.end(), [](int value) {
                 return value != sentinelValue;
             });
@@ -99,8 +80,8 @@ class Page {
 
         int calcSpaceRemaining() {
             cout << "calcSpaceRemaining entered:" << endl;
-            // Calculate the space remaining based on current usage. PageHeader, page_size and offsetArraySize are all static members/fixed
-            int newSpaceRemaining = page_size - dataSize(data, sentinelValue) - offsetArraySize - sizeof(PageHeader);
+            // Calculate the space remaining based on current usage. PageHeader, BLOCK_SIZE and offsetArraySize are all static members/fixed
+            int newSpaceRemaining = BLOCK_SIZE - elemsInDataVector(data, sentinelValue) - sizeof(PageHeader);
             cout << "calcSpaceRemaining::newSpaceRemaining: " << newSpaceRemaining << endl;
             return newSpaceRemaining;
         }
@@ -109,89 +90,21 @@ class Page {
             // Getters
             int getPageNumber() {return pageNumber;}
             Page * getNextPage() {return nextPage;}
-            int getDataSize() {return data.size();}
-            int getOffsetArraySize() {return offsetArraySize;}
+            int getelemsInDataVector() {return data.size();}
             int getDataVectorSize() {return dataVectorSize;}
             bool checkDataEmpty() {return data.empty();}
             // Getter method to return the next page in the list
             Page * goToNextPage() {
                 return this->nextPage;
             }
-            
 
             // Setters
             // Reinitialize data vector elements to sentinel value '\0'
             void emptyData() {fill(data.begin(), data.end(), sentinelValue);}
             // Reinitialize offsetArray elements to sentinel value -1
-            void emptyOffsetArray() {fill(offsetArray.begin(), offsetArray.end(), -1);}
             // Method to link this page to the next page
             void setNextPage(Page* nextPage) {
                 this->nextPage = nextPage;
-            }
-
-            
-
-            // Test function to print the contents of a page as indexed by their offsets
-            void printPageContentsByOffset() {
-
-                // Check if page is empty. If so simply return
-                if (offsetArrayEmpty() && dataVectorEmpty()) {
-                    cout << "Page is empty. No records to print.\n";
-                    return;
-                };
-
-                // Error check: If offsetArray is empty but data vector is not, print error and exit
-                if (offsetArrayEmpty() && !dataVectorEmpty()) {
-                    cerr << "Error: Offset array is empty but data vector not empty!\n";
-                    exit (-1);
-                };
-                
-                // Error check: If offsetArray is not empty but data vector is empty, print error and exit
-                if (!offsetArrayEmpty() && dataVectorEmpty()) {
-                    cerr << "Error: Data vector is empty but offset array not empty!\n";
-                    exit (-1);
-                };
-
-                // Initial print statements
-                cout << "printPageContentsByOffset begin" << endl;
-                cout << "Page Number: " << pageNumber << endl;
-                cout << "Records in Page: " << pageHeader.recordsInPage << endl;
-                cout << "Space Remaining: " << pageHeader.spaceRemaining << endl;
-                cout << "Offset\t\tBeginning of record\t\tRecord Size\n";
-
-                int elementsInOffsetArray = offsetSize();
-                cout << "elements in offset array: " << elementsInOffsetArray << endl;
-
-                for (size_t i = 0; i <  elementsInOffsetArray; ++i) {
-                    // Validate the current offset
-                    if (offsetArray[i] < 0 || offsetArray[i] >= static_cast<int>(dataSize(data))) {
-                        cerr << "Error: Invalid offset " << offsetArray[i] << " at offsetArray index " << i << ". Skipping record.\n";
-                        continue;
-                    }
-
-                    // Calculate the start and end offsets for the current record
-                    int startOffset = offsetArray[i];
-                    int endOffset = (i + 1 < elementsInOffsetArray) ? offsetArray[i + 1] : dataSize(data);
-
-                    if (endOffset == dataSize(data)) { cout << "endOffset currently equal to dataSize(data)" << dataSize(data) << endl;}
-
-                    // Validate the end offset
-                    if (endOffset > static_cast<int>(dataSize(data))) {
-                        cerr << "Error: End offset " << endOffset << " exceeds data vector size. Adjusting to data size.\n";
-                        endOffset = dataSize(data);
-                    }
-
-                    // Print the offset in hexadecimal and the record's contents
-                    cout << "0x" << setw(3) << setfill('0') << hex << startOffset << "\t";
-                    for (int j = startOffset; j < endOffset; ++j) {
-                        // Ensure printing of printable characters only
-                        cout << (isprint(data[j]) ? data[j] : '.');
-                    }
-                    
-                    cout << "\t\t" << dec << endOffset - startOffset << "\n\n";
-                    cout << "endoffset: " << endOffset << "\nstartOffset: "<< startOffset << endl;
-                }
-                cout << "printPageContentsByOffset end" << endl;
             }
 
             // Method to find the offset of the next record in the data vector
@@ -208,22 +121,9 @@ class Page {
                 return 0;
             }
 
-            // Method to add an offset to the end of offsetArray
-            // Bespoke method due to array being filled with sentinel values
-            bool addOffsetToFirstSentinel(std::vector<int>& offsetArray, int newOffset) {
-                for (size_t i = 0; i < offsetArray.size(); ++i) {
-                    if (offsetArray[i] == -1) { // Sentinel value found
-                        offsetArray[i] = newOffset; // Replace with new offset
-                        return true; // Indicate success
-                    }
-                }
-                return false; // Indicate failure (no sentinel value found)
-            }
-
             // Method to add a record to the page
-            bool addRecord(const Record& record) {
+            bool addRecordToMemory(const Record& record) {
                 cout << "addRecord begin" << endl;
-                bool offsetAdd = false;
                 auto recordString = record.toString();
 
                 // This should print out a properly formatted record string with not trailing periods
@@ -242,30 +142,13 @@ class Page {
 
                 // Ensure the insertion does not exceed the vector's predefined max size
                 if (offsetOfNextRecord + recordSize <= data.size()) {
-                    cout << "addRecord:: Adding record to page: " << this->pageNumber << "\n";
-                    std::copy(recordString.begin(), recordString.end(), data.begin() + offsetOfNextRecord);
-                    pageHeader.recordsInPage += 1;
-                    cout << "addRecord:: spaceRemaining - recordSize: " << pageHeader.spaceRemaining << " - " << recordSize << " = " << pageHeader.spaceRemaining - recordSize << endl;
-                    pageHeader.spaceRemaining -= recordSize;
-                    //offsetArray.push_back(offsetOfNextRecord);
-
-                    if (addOffsetToFirstSentinel(offsetArray, offsetOfNextRecord)) {
-                        cout << "addRecord:: Offset added to offsetArray\n";
-                    } else {
-                        std::cerr << "addRecord:: Error: Unable to add offset to offsetArray.\n";
-                        return false;
-                    }
-
-                    cout << "addRecord::Test: Confirm record added to page:\nPrinting stored record from main memory: \n";
                     
-                    cout << "0x" << setw(3) << setfill('0') << hex << offsetArray.back() << "\t" << dec;
-                    for (int i = offsetOfNextRecord; i < offsetOfNextRecord + recordSize; ++i) {
-                        cout << data[i];
-                    }
+                    bitset<8> hashID = record.getHashID();
+                    cout << "0x" << setw(3) << setfill('0') << "\t" << dec;
 
                     return true;
 
-                } else if (offsetOfNextRecord + recordSize > data.size()) {
+                } else if (recordSize > data.size()) {
                     std::cerr << "addRecord:: Error: Attempt to exceed predefined max size of data vector.\n";
                     cout << "addRecord failed" << endl;
                     return false;
@@ -278,30 +161,353 @@ class Page {
             }
 
             // Method to write the contents of this page to a file
-            int writeRecordsToFile(std::ofstream& outputFile, int offsetSize, int pageID) {
-                if (!outputFile.is_open()) {
-                    std::cerr << "Error: Output file is not open for writing.\n";
-                    return -1; // Indicate error
-                }
+            /*
+            Concept: 
+            Iterate through data vector, capture each record 
+            For each record, consult index to find the appropriate bucket
+            Read bucket header in memory, deserialize and determine if there's room, a split is needed or an overflow bucket already exists for this hash value
 
-               
+                1. If there's room, write the record to the bucket
 
-                for (int i = 0; i < offsetSize - 1; ++i) { // -1 to prevent accessing beyond the last valid index
-                    int startOffset = offsetArray[i];
-                    int endOffset = offsetArray[i + 1]; // Get the end offset for the current segment
+                If there's no room: 
+                2. If a split is needed, split the bucket and write the record to the correct bucket
+                3. If overflow bucket exists, seek to it, read bucket header and repeat process
+                4. If split is not needed and no overflow bucket exists, create a new overflow bucket and write the record to it. Update index
 
-                    // Write each character in the range [startOffset, endOffset) to the file
-                    for (int j = startOffset; j < endOffset; ++j) {
-                        if (data[j] != sentinelValue) {
-                            outputFile.write(reinterpret_cast<const char*>(&data[j]), sizeof(data[j]));
-                        }
-                    }
+            Update bucket header in memory and write to file
+            
+            */
+            int writeRecordsToBucket(std::fstream& outputFile, int offsetSize, int blockOffset, int pageID) {
+                
+
+                // ...
+
+                                std::ofstream outputFile; // Change the type to std::ofstream
+
+                                if (!outputFile.is_open()) {
+                                    std::cerr << "Error: Output file is not open for writing.\n";
+                                    return -1; // Indicate error
+                                }
+                int i = 0;
+
+                while (data[i] != sentinelValue) {
+                    outputFile.write(reinterpret_cast<const char*>(&data[i]), sizeof(data[i]));
+                    i++;
                 }
 
                 // Optionally, return the new offset after writing, if needed
+                // May be unnecessary for this project
                 return outputFile.tellp();
             }
 
-        }; // End of Page definition
+}; // End of Page definition
+
+class indexPage : public Page  {
+        //static const int BLOCK_SIZE = BLOCK_SIZE; // Define the size of each page (4KB)
+        int pageNumber; // Identifier for the page
+        Page *nextPage; // Pointer to the next page in the list
+        // These are static members of the Page class because the offsetArray and dataVector sizes will be shared by all instances of the Page class
+        int static dataVectorSize;
+        static const char sentinelValue = '\0'; // Sentinel value to indicate empty space in the data vector
+        vector<char> indexVector; // Vector to store the data in the page
+
+        bool dataVectorEmpty() {
+            for (int i = 0; i < data.size(); i++) {
+                if (data[i] != sentinelValue) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Returns the size of the data vector by counting non-sentinel values
+        // Does not modify data
+        int elemsInDataVector(const std::vector<char>& data, char sentinelValue) {
+            //cout << "elemsInDataVector begin" << endl;
+            return std::count_if(data.begin(), data.end(), [sentinelValue](char value) {
+            return value != sentinelValue;
+            });
+            //cout << "elemsInDataVector end" << endl;
+        }
+
+
+    public:
+        struct PageHeader {
+            int recordsInPage; // Number of records in the page
+            int spaceRemaining; // Updated to be initialized later in Page constructor
+
+            PageHeader() : recordsInPage(0) {} // Constructor simplified
+        } pageHeader;
+
+        // Constructor for the Page class
+        indexPage(int pageNum) : pageNumber(pageNum), nextPage(nullptr) {
+            cout << "Page constructor begin" << endl;
+            int indexPage = false;
+
+            if (pageNum == 0) {
+                indexPage = true;
+            }
+            // Size of data vector; calculated based on the size of the offset array and the size of the page header
+            dataVectorSize = BLOCK_SIZE - sizeof(PageHeader);
+            cout << "Value of dataVectorSize: " << dataVectorSize << endl;
+            // Initialize data vector to its maximum potential size first; sentinel value is -1
+            data.resize(dataVectorSize, sentinelValue);
+            cout << "Value of data[0]: " << data[0] << endl;
+            cout << "Size of resized data vector: " << data.size() << endl;
+            // Initialize space remaining in the page
+            pageHeader.spaceRemaining = dataVectorSize;
+            cout << "Value of spaceRemaining: " << pageHeader.spaceRemaining << endl;
+            cout << "Ensure all members are initialized correctly\n";
+            cout << "Page constructor end" << endl;
+        }
+
+        int elemsInDataVector(const std::vector<char>& data) {
+            int count = std::count_if(data.begin(), data.end(), [](int value) {
+                return value != sentinelValue;
+            });
+            //cout << "Elements in data array: " << count << endl;
+            return count;
+        }
+
+        int calcSpaceRemaining() {
+            cout << "calcSpaceRemaining entered:" << endl;
+            // Calculate the space remaining based on current usage. PageHeader, BLOCK_SIZE and offsetArraySize are all static members/fixed
+            int newSpaceRemaining = BLOCK_SIZE - elemsInDataVector(data, sentinelValue) - sizeof(PageHeader);
+            cout << "calcSpaceRemaining::newSpaceRemaining: " << newSpaceRemaining << endl;
+            return newSpaceRemaining;
+        }
+
+
+            // Getters
+            int getPageNumber() {return pageNumber;}
+            Page * getNextPage() {return nextPage;}
+            int getelemsInDataVector() {return data.size();}
+            int getDataVectorSize() {return dataVectorSize;}
+            bool checkDataEmpty() {return data.empty();}
+            // Getter method to return the next page in the list
+            Page * goToNextPage() {
+                return this->nextPage;
+            }
+
+            // Setters
+            // Reinitialize data vector elements to sentinel value '\0'
+            void emptyData() {fill(data.begin(), data.end(), sentinelValue);}
+            // Reinitialize offsetArray elements to sentinel value -1
+            // Method to link this page to the next page
+            void setNextPage(Page* nextPage) {
+                this->nextPage = nextPage;
+            }
+
+            // Method to find the offset of the next record in the data vector
+            // Searches for the last non-sentinel character and returns the next position
+            int findOffsetOfNextRecord(const std::vector<char>& data, char sentinelValue) {
+                // Start from the end of the vector and move backwards
+                for (int i = data.size() - 1; i >= 0; --i) {
+                    if (data[i] != sentinelValue) {
+                        // Found the last non-sentinel character, return the next position
+                        return i + 1;
+                    }
+                }
+                // If all characters are sentinel values or the vector is empty, return 0
+                return 0;
+            }
+
+            // Method to add a record to the page
+            bool addRecordToMemory(const Record& record) {
+                cout << "addRecord begin" << endl;
+                auto recordString = record.toString();
+
+                // This should print out a properly formatted record string with not trailing periods
+                cout << "addRecord:: TEST PRINT: Record string: " << recordString << "\n";
+
+                size_t recordSize = recordString.size();
+                
+                // Check if there's enough space left in the page
+                if (recordSize > static_cast<size_t>(pageHeader.spaceRemaining)) {
+                    std::cerr << "addRecord::Error: Not enough space in the page to add the record.\n";
+                    return false;
+                }
+                
+                // Calculate the offset for the new record
+                int offsetOfNextRecord = findOffsetOfNextRecord(data, sentinelValue);
+
+                // Ensure the insertion does not exceed the vector's predefined max size
+                if (offsetOfNextRecord + recordSize <= data.size()) {
+                    
+                    bitset<8> hashID = record.getHashID();
+                    cout << "0x" << setw(3) << setfill('0') << "\t" << dec;
+
+                    return true;
+
+                } else if (recordSize > data.size()) {
+                    std::cerr << "addRecord:: Error: Attempt to exceed predefined max size of data vector.\n";
+                    cout << "addRecord failed" << endl;
+                    return false;
+                } else {
+                    std::cerr << "addRecord:: Error: Unknown error occurred while adding record to page.\n";
+                    cout << "addRecord failed" << endl;
+                    return false;
+                }
+                cout << "addRecord successful" << endl;
+            }
+
+            // Method to write the contents of this page to a file
+            /*
+            Concept: 
+            Iterate through data vector, capture each record 
+            For each record, consult index to find the appropriate bucket
+            Read bucket header in memory, deserialize and determine if there's room, a split is needed or an overflow bucket already exists for this hash value
+
+                1. If there's room, write the record to the bucket
+
+                If there's no room: 
+                2. If a split is needed, split the bucket and write the record to the correct bucket
+                3. If overflow bucket exists, seek to it, read bucket header and repeat process
+                4. If split is not needed and no overflow bucket exists, create a new overflow bucket and write the record to it. Update index
+
+            Update bucket header in memory and write to file
+            
+            */
+            int writeRecordsToBucket(std::fstream& outputFile, int offsetSize, int blockOffset, int pageID) {
+                
+
+                // ...
+
+                                std::ofstream outputFile; // Change the type to std::ofstream
+
+                                if (!outputFile.is_open()) {
+                                    std::cerr << "Error: Output file is not open for writing.\n";
+                                    return -1; // Indicate error
+                                }
+                int i = 0;
+
+                while (data[i] != sentinelValue) {
+                    outputFile.write(reinterpret_cast<const char*>(&data[i]), sizeof(data[i]));
+                    i++;
+                }
+
+                // Optionally, return the new offset after writing, if needed
+                // May be unnecessary for this project
+                return outputFile.tellp();
+            }
+
+}; // End of indexPage definition
+
+ class PageList {
+            public:
+            Page *head = nullptr;
+            //static const int maxPages = 3; 
+            // Constructor for the PageList class
+            // Head is initialized as page 0 and linked list created from it
+            PageList() {
+                cout << "PageList constructor begin" << endl;
+                head = initializePageList();
+                cout << "PageList constructor end" << endl;
+            }
+
+            // Create 'maxPages' number of pages and link them together
+            // Initialization of head member attirbutes done in head constructor
+            Page* initializePageList() {
+                cout << "initializePageList begin" << endl;
+                Page *tail = nullptr;
+                for (int i = 0; i < maxPages; ++i) {
+                    cout << "Creating page " << i << endl;
+                    Page *newPage = new Page(i); // Create a new page
+                    cout << "Page " << i << " created" << endl;
+
+                    if (!head) {
+                        cout << "Setting head to page " << i << endl;
+                        head = newPage; // If it's the first page, set it as head
+                    } else {  
+                        cout << "Linking page " << i << " to page " << i - 1 << endl;
+                        tail->setNextPage(newPage); // Otherwise, link it to the last page
+                    }
+                    cout << "Setting tail to page " << i << endl;
+                    tail = newPage; // Update the tail to the new page
+                }
+                cout << "initializePageList end" << endl;
+                return head; // Return the head of the list
+            };
+
+              // Destructor for the PageList class
+            ~PageList() {
+                cout << "PageList destructor begin" << endl;
+                Page* current = head;
+                while (current != nullptr) {
+                    Page* temp = current->getNextPage(); // Assuming nextPage points to the next Page in the list
+                    delete current; // Free the memory of the current Page
+                    current = temp; // Move to the next Page
+                };
+                cout << "PageList destructor end" << endl;
+            };
+
+            // Method to reset the data and offsetArray of each page in the list to initial values
+            void resetPages() {
+                cout << "resetPage begin" << endl;
+                Page * current = head;
+                while (current != nullptr) {
+                    current->emptyData();
+                    current->pageHeader.recordsInPage = 0;
+                    current->pageHeader.spaceRemaining = current->calcSpaceRemaining();
+                    current = current->getNextPage();
+                }
+                cout << "resetPage end" << endl;
+            }
+
+            bool dumpPages(ofstream& file, int& pagesWrittenToFile) {
+                cout << "Dumping pages to file...\n";
+
+                if (!file.is_open()) {
+                    cerr << "File is not open for writing.\n";
+                    return false;
+                }
+
+                Page* currentPage = head;
+                int pageOffset = 0;
+                while (currentPage != nullptr) {
+                    // Assume currentPage->writeRecordsToFile() handles serialization of page data
+                    if (!currentPage->writeRecordsToBucket(file, currentPage->getPageNumber()) {
+                        cerr << "Failed to write page records to file.\n";
+                        return false;
+                    }
+
+                    // Update the page directory with new entry
+                    int currentPageOffset = /* Calculate current page offset in the file */;
+                    int currentPageRecordCount = currentPage->getRecordCount();
+                    // Add the new directory entry
+                    // Assuming you have a method to handle adding and serializing the page directory entry
+                    addPageDirectoryEntry(currentPageOffset, currentPageRecordCount);
+
+                    pagesWrittenToFile++;
+                    currentPage = currentPage->getNextPage();
+                }
+
+                // Serialize and write the updated page directory and file header here
+                // Reset the pages for reuse
+                resetPages();
+                cout << "Page dumping complete.\n";
+                return true;
+            }
+
+            
+
+            /*
+            Test function: Use to confirm page is being filled properly. 
+            */
+            void printMainMemory() {
+                cout << "Printing main memory contents...\n";
+                Page* page = head;
+                while (page != nullptr) {
+                    // Print the page number as a header for each page's content
+                    cout << "\n\nPrinting contents of Page Number: " << page->getPageNumber() << endl;
+                    // Now, use the printPageContentsByOffset method to print the contents of the current page
+                    //page->printPageContentsByOffset();
+                    // Move to the next page in the list
+                    page = page->getNextPage();
+                }
+                cout << "End of main memory contents.\n";
+            }
+
+        }; // End of PageList definition
 
 #endif
