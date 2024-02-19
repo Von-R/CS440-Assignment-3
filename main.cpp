@@ -13,29 +13,31 @@ Skeleton code for linear hash indexing
 #include <stdexcept>
 #include <cmath>
 #include "classes.h"
+
 using namespace std;
 
 
 int main(int argc, char* const argv[]) {
 
-    // Create the index
-    LinearHashIndex emp_index("EmployeeIndex");
+    //Create the index
+    LinearHashIndex emp_index("EmployeeIndex.bin");
     emp_index.createFromFile("Employee.csv");
+
+
     
-    // Loop to lookup IDs until user is ready to quit
-<<<<<<< HEAD
-    while (true) {
-        string input;
-        cout << "Enter an ID to lookup: ";
-        cin >> input;
-        if (input == "q") {
-            break;
-        }
-        int id = stoi(input);
-        emp_index.findRecordById(id);
+    char userChoice = ' ';
+    int userId = 0;
+
+    while(userChoice != 'n')
+    {
+      cout << "Please enter a Employee ID to search: ";
+      cin >> userId;
+      emp_index.findRecordById(userId);
+
+      cout << "Do you want to search again[y,n]: ";
+      cin >> userChoice;
+      userChoice = tolower(userChoice);
     }
-=======
->>>>>>> 48b8bff184732904d1f989bdffdca3939e697ae2
     
 
     return 0;

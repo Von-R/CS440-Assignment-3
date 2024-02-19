@@ -2,261 +2,666 @@
 #include <vector>
 #include <string>
 #include <iostream>
+#include <fstream>
+#include <string.h>
 #include <sstream>
 #include <bitset>
-using namespace std;
+#include <cmath>
 
-const int BLOCK_SIZE = 4096;
+using namespace std;
 
 class Record {
 public:
-    bitset<8> hashID;
     int id, manager_id;
     std::string bio, name;
 
     Record(vector<std::string> fields) {
-        id = stoi(fields[1]);
-        name = fields[2];
-        bio = fields[3];
-        manager_id = stoi(fields[4]);
-        hashID = bitset<8>( id % 216);
+        id = stoi(fields[0]);
+        name = fields[1];
+        bio = fields[2];
+        manager_id = stoi(fields[3]);
     }
 
-    Record () {};
-
     void print() {
-        cout << "\tHASH_ID: " << hashID.to_string() << "\n"; // "to_string" converts bitset to "human-readable" string
         cout << "\tID: " << id << "\n";
         cout << "\tNAME: " << name << "\n";
         cout << "\tBIO: " << bio << "\n";
         cout << "\tMANAGER_ID: " << manager_id << "\n";
     }
-
-    // $ marks beginning of record
-    // # marks end of field
-    // % marks end of record
-    string toString() const {
-        return "$" + hashID.to_string() + "#" + to_string(id) + "#" + name + "#" + bio + "#" + to_string(manager_id) + "%";
-    }
-
-    bitset<8> getHashID() const {
-        return bitset<8>(id % 216);
-    }
-};
-
-struct FileHeader {
-    vector<BucketHeader> bucketHeaders; // Vector of bucket headers
-    int totalBuckets;                   // Total number of buckets, including overflow
-    int nextBucketToSplit;              // Next bucket in line for splitting
-    float currentLevel;                   // Current level of the hash table
-    int totalRecords;                   // Total number of records in the index
-    int firstFreeOverflowBucketOffset;  // Offset for the first free overflow bucket (for quick allocation)
-    int fileHeaderSize;                 // Size of the file header: calculate at compile time, if static
-    // Other global parameters like hash table parameters, performance metrics, etc.
-
-    // Initialize the file header
-    FileHeader() {
-        totalBuckets = 0;
-        nextBucketToSplit = 0;
-        currentLevel = 0;
-        totalRecords = 0;
-        firstFreeOverflowBucketOffset = -1;
-    }
-
-    // Methods
-
-    // Getters
-    float getCurrentLevel() {
-        calculateIndexFillLevel();
-        return currentLevel;
-    }
-
-    // This method requires that the bucket headers are already populated and up to date
-    float calculateIndexFillLevel() {
-        // Calculate the fill ratio of the index
-        currentLevel = 0;
-        for (BucketHeader bucket : bucketHeaders) {
-            currentLevel += bucket.getBucketFillRatio();
-            currentLevel /= totalBuckets;
-        }
-        return currentLevel;
-    }
-
-
-    // Write the file header to the index file
-    void serializeHeader() {
-        // What members will I write, exactly?
-        // Anything that needs to persist between creating the index file and reading it back in for searching
-
-        // for serializing the bucketHeader vector, first write the size of the vector, then write each bucketHeader
-        // this will allow you to read the size of the vector first, then read that many bucketHeaders, knowing when to stop
-        // when deserializing
-    }
-
-    // Read the file header from the index file
-    void deserializeHeader() {
-
-        // for deserializing the bucketHeader vector, first read the size of the vector, then read each bucketHeader
-        // this will allow you to read the size of the vector first, then read that many bucketHeaders, knowing when to stop
-
-
-    }
-
-    // Setters
-    void setTotalBuckets(int numBuckets) {
-        totalBuckets = numBuckets;
-    }
-
-    void incrementTotalBuckets() {
-        totalBuckets++;
-    }
-
-    void incrementTotalRecords() {
-        totalRecords++;
-    }
-
-    void setNextBucketToSplit(int nextBucket) {
-        nextBucketToSplit = nextBucket;
-    }
-
-
-    
-
-};
-
-// Bucket Header Structure
-struct BucketHeader {
-    int bucketID; // Unique identifier for the bucket. 1 through 216
-    int digits; // Number of bits used to address the bucket. 1 through 8
-    int recordsInBucket; // Number of records currently stored in the bucket
-    int overflowBucketOffset; // Offset to the overflow bucket, if any
-    float bucketFillRatio; // Fill ratio of the bucket to manage splitting
-    int bucketSpaceRemaining;
-    // Other local parameters like modification timestamps, local performance metrics, etc.
-
-    BucketHeader(int id) {
-        bucketID = id;
-        recordsInBucket = 0;
-        overflowBucketOffset = -1;
-        bucketFillRatio = 0;
-        bucketSpaceRemaining = BLOCK_SIZE - sizeof(BucketHeader) ;
-    }
-
-    // Getters
-    int getBucketID() {
-        return bucketID;
-    }
-
-    int getDigits() {
-        return digits;
-    }
-
-    int getRecordsInBucket() {
-        return recordsInBucket;
-    }
-
-    int getOverflowBucketOffset() {
-        return overflowBucketOffset;
-    }
-
-    int getBucketSpaceRemaining() {
-        return bucketSpaceRemaining;
-    }
-
-    float getBucketFillRatio() {
-        calculateBucketFillRatio();
-        return bucketFillRatio;
-    }
-
-    // Setters
-    void setRecordsInBucket(int recordNum) {
-        recordsInBucket = recordNum;
-    }
-
-    void setHashID(bitset<8> hashID) {
-        // Set the hash ID of the bucket
-        bucketID = hashID.to_ulong();
-    }
-
-    void incrementSignificantBits() {
-        // Increment the number of significant bits
-        digits++;
-    }
-
-    void calculateBucketFillRatio() {
-        // Calculate the fill ratio of the bucket
-        bucketFillRatio = (BLOCK_SIZE - sizeof(BucketHeader) - bucketSpaceRemaining) / BLOCK_SIZE;
-    }
-
-
-
-
 };
 
 
 class LinearHashIndex {
 
-    FileHeader * fileHeader;
-    ofstream outputFile;
-
-
 private:
-    
+    const int BLOCK_SIZE = 4096;
 
     vector<int> blockDirectory; // Map the least-significant-bits of h(id) to a bucket location in EmployeeIndex (e.g., the jth bucket)
                                 // can scan to correct bucket using j*BLOCK_SIZE as offset (using seek function)
 								// can initialize to a size of 256 (assume that we will never have more than 256 regular (i.e., non-overflow) buckets)
     int n;  // The number of indexes in blockDirectory currently being used
     int i;	// The number of least-significant-bits of h(id) to check. Will need to increase i once n > 2^i
+    int j;  // Used to search the blockdir and find the right page for a given record id
     int numRecords;    // Records currently in index. Used to test whether to increase n
     int nextFreeBlock; // Next place to write a bucket. Should increment it by BLOCK_SIZE whenever a bucket is written to EmployeeIndex
+    int nextFreeOverflow;
     string fName;      // Name of index file
+    int hashResult;
+    string pageBuffer;
 
-    // Read a record from the file
-    // Successive calls will read successive records, as long as read pointer isn't moved by other methods
-    // Option 1: Return a boolean indicating success/failure
-    bool readEmployeeRecord(ifstream &file, Record &record) {
-        string line;
-        if (!getline(file, line)) {
-            return false; // Indicate failure to read due to EOF or other error
+    // Replace a substring in a string with another string
+    void replaceString(string toCopy, char** copyHere, int location){
+
+        for(int i = 0; i < toCopy.length(); i++){
+            
+            (*copyHere)[i+location] = toCopy[i];
         }
-        stringstream ss(line);
-        vector<string> fields;
-        string field;
-        while (getline(ss, field, ',')) {
-            fields.push_back(field);
+
+    }
+
+    // Put a record into the correct block
+    void putRecord(Record record){
+
+        string inputBuffer;
+
+        int currReadLocation = j*BLOCK_SIZE;
+
+        // Dynamically calculate the size of the new record
+        int newRecordLength = 8 + 8 + record.bio.length() + record.name.length() + 4 + 12;
+
+        while(true)
+        {
+            ifstream inFile;
+            inFile.open(fName, ios::binary);
+            // Seek to the correct block to read from
+            inFile.seekg(currReadLocation);
+
+            //declare the c style buffer to read in the block
+            char* pageDataBuffer = new char[BLOCK_SIZE + 1];
+            // Read the block into the buffer
+            inFile.read(pageDataBuffer, BLOCK_SIZE);
+            // Null terminate the buffer
+            pageDataBuffer[BLOCK_SIZE] = '\0';
+
+            inFile.close();
+
+            // Convert to string
+            string stringBuffer = pageDataBuffer;
+            // Free memory
+            delete[] pageDataBuffer;
+
+            //set the buffer to a stringstream and delete the normal string
+            stringstream myStrStrm;
+            myStrStrm.str(stringBuffer);
+            // stringBuffer.clear();
+
+            int slotDirStart = BLOCK_SIZE - 12;
+            int sizeOfSlotDir = 0;
+            int lastOff = 0;
+            int lastLen = 0;
+
+            //determine how much space is currently available in the determined block, go to the slot dir and add up the offsets
+            if (getline(myStrStrm, inputBuffer, '[')){
+                //if the getline was valid
+            
+                if(myStrStrm.tellg() != -1){
+                    // GEt the position of the slot dir
+                    slotDirStart = myStrStrm.tellg();
+                    slotDirStart--;
+                    sizeOfSlotDir = BLOCK_SIZE - slotDirStart;
+
+                    getline(myStrStrm, inputBuffer, '*');
+                    //cout << inputBuffer << endl;
+                    lastOff = stoi(inputBuffer);
+
+                    getline(myStrStrm, inputBuffer, ',');
+                    getline(myStrStrm, inputBuffer, '*');
+                    //cout << inputBuffer << endl;
+                    lastLen = stoi(inputBuffer);
+                    
+                }
+                //if the getline was invalid and cause a stringstream fail, reset the stringstream and move on
+                /*
+                else{
+                    myStrStrm.clear();
+                    ifstream inFile;
+                    inFile.open(fName, ios::binary);
+                    inFile.seekg(currReadLocation);
+
+                    //declare the c style buffer to read in the block
+                    char* pageDataBuffer = new char[BLOCK_SIZE + 1];
+                    inFile.read(pageDataBuffer, BLOCK_SIZE);
+                    pageDataBuffer[BLOCK_SIZE] = '\0';
+
+                    inFile.close();
+
+                    //set the buffer to a normal string and delete the c string
+                    string stringBuffer = pageDataBuffer;
+                    delete[] pageDataBuffer;
+
+                    //set the buffer to a stringstream and delete the normal string
+                    stringstream myStrStrm;
+                    myStrStrm.str(stringBuffer);
+                    stringBuffer.clear();
+                }
+                */
+            }
+
+            //if space, insert
+            if((lastOff + lastLen + sizeOfSlotDir + newRecordLength) <= BLOCK_SIZE){
+                //put the record in the given block, then push it back onto the file
+
+                //turn the stringstream back into a c string
+                stringBuffer = myStrStrm.str();
+                myStrStrm.clear();
+                char* pageDataBuffer = new char[BLOCK_SIZE + 1];
+                pageDataBuffer[BLOCK_SIZE] = '\0';
+                strcpy(pageDataBuffer, (stringBuffer).c_str());
+                stringBuffer.clear();
+
+                //build record
+                string newRecord = to_string(record.id) + '$' + record.name + '$' + record.bio + '$' + to_string(record.manager_id) + "$";
+                string newSlot = "[*****,****]";
+                //build slot
+                newSlot.replace(1, to_string(lastOff + lastLen).length(), to_string(lastOff + lastLen));
+                newSlot.replace(7, to_string(newRecord.length()).length(), to_string(newRecord.length()));
+                //cout << newSlot << endl;
+
+                //put the new record in
+                replaceString(newRecord, &pageDataBuffer, (lastOff + lastLen));
+                //put the new slot in
+                replaceString(newSlot, &pageDataBuffer, (slotDirStart - 12));
+
+                //send the data into the file
+                ofstream outFile;
+                outFile.open(fName, ios::in | ios::ate | ios::binary);
+                outFile.seekp(currReadLocation);
+                outFile.write(pageDataBuffer, 4096);
+                outFile.close();
+
+                delete[] pageDataBuffer;
+
+                break;
+
+            }
+            //if no space, insert into overflow
+            else{
+                //check if we currently already have a valid file pointer
+                myStrStrm.seekg(BLOCK_SIZE-11);
+                //getline(myStrStrm, inputBuffer, '{');
+                getline(myStrStrm, inputBuffer, '}');
+
+                int overflowPointer = stoi(inputBuffer);
+
+                //No active pointer on this page so the next one needs to be created
+                if(overflowPointer == 0)
+                {
+                    //create an overflow page and store it there
+                    stringBuffer = myStrStrm.str();
+                    myStrStrm.clear();
+                    
+                    //create a buffer to write the new page
+                    char* pageDataBuffer = new char[BLOCK_SIZE + 1];
+                    pageDataBuffer[BLOCK_SIZE] = '\0';
+                    strcpy(pageDataBuffer, (stringBuffer).c_str());
+                    stringBuffer.clear();
+
+                    
+                    //update the pointer in the current page, and write it to the file
+
+                    string newPointer = to_string(nextFreeOverflow);
+                    nextFreeOverflow += BLOCK_SIZE;
+
+                    int placementLength = (BLOCK_SIZE-(newPointer.length()+1));
+
+                    replaceString(newPointer, &pageDataBuffer, placementLength);
+
+                    //seek to the correct position in the file
+                    //Write contents to the file
+                    ofstream outFile;
+                    outFile.open(fName, ios::in | ios::ate | ios::binary);
+                    outFile.seekp(currReadLocation);
+                    outFile.write(pageDataBuffer, BLOCK_SIZE);
+
+                    string filePointer = "{0000000000}";
+                    memset(pageDataBuffer, ' ', BLOCK_SIZE);
+                    replaceString(filePointer, &pageDataBuffer, 4084);
+
+                    outFile.seekp(stoi(newPointer));
+                    outFile.write(pageDataBuffer, BLOCK_SIZE);
+
+                    outFile.close();
+                    //update read location
+                    currReadLocation = stoi(newPointer);
+
+                    delete[] pageDataBuffer;
+                }else
+                {
+                    //move past the current page
+                    currReadLocation = overflowPointer; 
+                }
+            }
+            
         }
-        record = Record(fields);
-        return true; // Indicate success
+
     }
 
     // Insert new record into index
-    // Do not fill memory with records, simply write one at a time to the index file
-    bool insertRecord(Record record) {
+    void insertRecord(Record record) {
+        
+        /*
+        //the size needed to store the new record and its corresponding slot dir slot
+        int newRecordLength = 8 + 8 + record.bio.length() + record.name.length() + 4 + 12;
+        */
 
         // No records written to index yet
         if (numRecords == 0) {
             // Initialize index with first blocks (start with 4)
-            initializeIndexFile(outputFile, fileHeader);
+            blockDirectory.push_back(00);
+            blockDirectory.push_back(01);
+            blockDirectory.push_back(10);
+            blockDirectory.push_back(11);
+
+            nextFreeBlock = 4*BLOCK_SIZE;
+            nextFreeOverflow = 4096*256;
+
         }
 
         // Add record to the index in the correct block, creating a overflow block if necessary
-
-        /*
-        Check file header to get offset of correct bucket
-        Check bucket header to determine if there's room, a split is needed or an overflow
-            bucket already exists for this hash value
-
-            1. If there's room, write the record to the bucket
-            2. If a split is needed, split the bucket and write the record to the correct bucket
-            3. If overflow bucket exists, seek to it, read bucket header and repeat process
-        
-        */
         numRecords++;
-        // Take necessary steps if capacity is reached:
-		// increase n; increase i (if necessary); place records in the new bucket that may have been originally misplaced due to a bit flip
-        return true;
 
+        //compute the hash function "id mod 216"
+        int hashResult = record.id%216;
+        int binResult = 0;
+        int modResult = 0;
+        int divResult = hashResult;
+
+        //convert to binary and grab i least significant bits
+        for(int k = 0; k < i; k++){
+            //build an int that looks like binary
+            modResult = divResult%2;
+            divResult = divResult/2;
+
+            binResult += pow(10,k) * modResult;
+
+        }
+
+        //check for bit flip
+        if(binResult > blockDirectory.at(n-1)){
+            //perform the bit flip
+            int xorFella = pow(10, i-1);
+            binResult ^= xorFella;
+        }
+
+        //based on the binary result, determine which block to go to, j represents the block number
+        for(int k = 0; k < n; k++){
+            if(blockDirectory.at(k) == binResult){
+                j = k;
+                // cout << "I go in page: " << j << endl;
+            }
+        }
+
+        //open the file and seek to the desired block
+       
+        //for processing small bits of data;
+        string inputBuffer;
+
+        //put the record in the correct page
+        putRecord(record);
+
+        
+        
+        // Take neccessary steps if capacity is reached:
+		// increase n; increase i (if necessary); place records in the new bucket that may have been originally misplaced due to a bit flip
+
+        //check whether the average number of records per page exceeds 70% capacity, if so, increase n
+        //730 represents the max size of a record with its data plus slot dir
+        if((numRecords * 730) > (.7 * n * 4096)){
+            n++;
+            nextFreeBlock += BLOCK_SIZE;
+
+            //check if i needs to increase
+            if(pow(2,i) < n){
+                i++;
+            }
+            //update the blockdir
+            divResult = n-1;
+            binResult = 0;
+            int k = 0;
+
+            while(divResult != 0){
+                //build an int that looks like binary
+                modResult = divResult%2;
+                divResult = divResult/2;
+
+                binResult += pow(10,k) * modResult;
+                k++;
+
+            }
+            
+            //update the block dir
+            blockDirectory.push_back(binResult);
+
+            int allmyfellascounter = 1;
+
+            //for each current page in the file
+            for(int l = 0; l < n-1; l++)
+            {
+                int slotCounter = 0;
+                int overFlowCounter = 0;
+
+                while(true){
+                    //open the file and snatch a page
+                    ifstream inFile;
+                    inFile.open(fName, ios::binary);
+
+                    if(overFlowCounter == 0){
+                        inFile.seekg(BLOCK_SIZE*l);
+                    }
+                    else{
+                        inFile.seekg(overFlowCounter);
+                    }
+
+                    //convert the c string to a silly stringstream teehee
+                    char* pageDataBuffer = new char[BLOCK_SIZE + 1];
+                    inFile.read(pageDataBuffer, BLOCK_SIZE);
+                    pageDataBuffer[BLOCK_SIZE] = '\0';
+                    string stringBuffer = pageDataBuffer;
+                    delete[] pageDataBuffer;
+                    stringstream myStrStrm;
+                    myStrStrm.str(stringBuffer);
+                    stringBuffer.clear();
+
+                    inFile.close();
+
+                    //establish the first slot position
+                    if(slotCounter == 0){
+                        if (getline(myStrStrm, inputBuffer, '[')){
+                            //we found a slot
+                            if(myStrStrm.tellg() != -1){
+
+
+                                //take account of the position
+                                slotCounter = myStrStrm.tellg();
+                                int slotPosition = myStrStrm.tellg();
+                                slotPosition--;
+
+
+                                //operate on the record
+
+                                //grab the record offset and seek to the record
+                                getline(myStrStrm, inputBuffer, '*');
+                                int recordPosition = stoi(inputBuffer);
+                                myStrStrm.seekg(stoi(inputBuffer));
+                                //grab the id
+                                getline(myStrStrm, inputBuffer, '$');
+                                string id = inputBuffer;
+                                //grab the name
+                                getline(myStrStrm, inputBuffer, '$');
+                                string name = inputBuffer;
+                                //grab the bio
+                                getline(myStrStrm, inputBuffer, '$');
+                                string bio = inputBuffer;
+                                //grab the managerid
+                                getline(myStrStrm, inputBuffer, '$');
+                                string manid = inputBuffer;
+
+                                //make the record and send it into the file in the new location
+                                vector<string> myVector{id, name, bio, manid};
+                                Record moveRecord(myVector);
+
+                                //hash it
+                                int hashResult = moveRecord.id%216;
+                                int binResult = 0;
+                                int modResult = 0;
+                                int divResult = hashResult;
+
+                                //convert to binary and grab i least significant bits
+                                for(int k = 0; k < i; k++){
+                                    //build an int that looks like binary
+                                    modResult = divResult%2;
+                                    divResult = divResult/2;
+
+                                    binResult += pow(10,k) * modResult;
+
+                                }
+
+                                //check for bit flip
+                                if(binResult > blockDirectory.at(n-1)){
+                                    //perform the bit flip
+                                    int xorFella = pow(10, i-1);
+                                    binResult ^= xorFella;
+                                }
+
+                                //check if it needs to be moved
+                                if(binResult != blockDirectory.at(j)){
+                                    //find the correct block
+                                    for(int k = 0; k < n; k++){
+                                        if(blockDirectory.at(k) == binResult){
+                                            j = k;
+                                        }
+                                    }
+
+                                    //delete the record and slot from the original location
+
+                                    //turn the stringstream back into a c string
+                                    stringBuffer = myStrStrm.str();
+                                    myStrStrm.clear();
+                                    char* pageDataBuffer = new char[BLOCK_SIZE + 1];
+                                    pageDataBuffer[BLOCK_SIZE] = '\0';
+                                    strcpy(pageDataBuffer, (stringBuffer).c_str());
+                                    stringBuffer.clear();
+
+                                    //build blank record and slot
+                                    int blankRecordLength = 8 + 8 + 4 + moveRecord.name.length() + moveRecord.bio.length();
+                                    string blankRecord;
+                                    blankRecord.append(blankRecordLength, ' ');
+                                    string blankSlot = "            ";
+
+                                    //put the new record in
+                                    replaceString(blankRecord, &pageDataBuffer, recordPosition);
+                                    //put the new slot in
+                                    replaceString(blankSlot, &pageDataBuffer, slotPosition);
+
+                                    //send the data into the file
+                                    ofstream outFile;
+                                    outFile.open(fName, ios::in | ios::ate | ios::binary);
+                                    if(overFlowCounter == 0){
+                                        outFile.seekp(BLOCK_SIZE*l);
+                                    }
+                                    else{
+                                        outFile.seekp(overFlowCounter);
+                                    }
+                                    outFile.write(pageDataBuffer, 4096);
+                                    outFile.close();
+
+                                    delete[] pageDataBuffer;
+
+                                    //move the record
+                                    putRecord(moveRecord);
+                                }
+                                
+
+                            }
+                            //there are no slots
+                            else{
+                                //reset the stringstream since the error bit got set
+                                myStrStrm.clear();
+                                ifstream inFile;
+                                inFile.open(fName, ios::binary);
+                                //find the correct place to reset at
+                                if(overFlowCounter == 0){
+                                    inFile.seekg(BLOCK_SIZE*l);
+                                }
+                                else{
+                                    inFile.seekg(overFlowCounter);
+                                }
+                                //convert the c string to a silly stringstream teehee
+                                char* pageDataBuffer = new char[BLOCK_SIZE + 1];
+                                inFile.read(pageDataBuffer, BLOCK_SIZE);
+                                pageDataBuffer[BLOCK_SIZE] = '\0';
+                                string stringBuffer = pageDataBuffer;
+                                delete[] pageDataBuffer;
+                                stringstream myStrStrm;
+                                myStrStrm.str(stringBuffer);
+                                stringBuffer.clear();
+
+                                inFile.close();
+                                //grab the overflow pointer
+                                myStrStrm.seekg(BLOCK_SIZE-11);
+                                getline(myStrStrm, inputBuffer, '}');
+                                int overflowPointer = stoi(inputBuffer);
+
+                                //check for overflow page
+                                if(overflowPointer == 0){
+                                    myStrStrm.clear();
+                                    break;
+                                }
+                                else{
+                                    overFlowCounter = overflowPointer;
+                                    slotCounter = 0;
+                                }
+
+                            }
+                        }
+                    }
+                    //we already found a slot in this page
+                    else{
+                        //change the slot counter by 12, 
+                        slotCounter += 12;
+                        //if we're at 4084, we're at the end of the page
+                        if(slotCounter == 4085){
+                            //grab the overflow pointer
+                            myStrStrm.seekg(BLOCK_SIZE-11);
+                            getline(myStrStrm, inputBuffer, '}');
+                            int overflowPointer = stoi(inputBuffer);
+
+                            if(overflowPointer == 0){
+                                myStrStrm.clear();
+                                break;
+                            }
+                            else{
+                                overFlowCounter = overflowPointer;
+                                slotCounter = 0;
+                            }
+                        }
+                        else{
+                            //check if it's spaces
+                            myStrStrm.seekg(slotCounter);
+
+                            //if not spaces, grab the record and operate on it
+                            if((myStrStrm.str())[slotCounter] != ' '){
+                                //hash it
+
+                                int slotPosition = myStrStrm.tellg();
+                                slotPosition--;
+                                
+                                //operate on the record
+
+                                //grab the record offset and seek to the record
+                                getline(myStrStrm, inputBuffer, '*');
+                                myStrStrm.seekg(stoi(inputBuffer));
+                                int recordPosition = stoi(inputBuffer);
+                                //grab the id
+                                getline(myStrStrm, inputBuffer, '$');
+                                string id = inputBuffer;
+                                //grab the name
+                                getline(myStrStrm, inputBuffer, '$');
+                                string name = inputBuffer;
+                                //grab the bio
+                                getline(myStrStrm, inputBuffer, '$');
+                                string bio = inputBuffer;
+                                //grab the managerid
+                                getline(myStrStrm, inputBuffer, '$');
+                                string manid = inputBuffer;
+
+                                //make the record and send it into the file in the new location
+                                vector<string> myVector{id, name, bio, manid};
+                                Record moveRecord(myVector);
+
+                                //hash it
+                                int hashResult = moveRecord.id%216;
+                                int binResult = 0;
+                                int modResult = 0;
+                                int divResult = hashResult;
+
+                                //convert to binary and grab i least significant bits
+                                for(int k = 0; k < i; k++){
+                                    //build an int that looks like binary
+                                    modResult = divResult%2;
+                                    divResult = divResult/2;
+
+                                    binResult += pow(10,k) * modResult;
+
+                                }
+
+                                //check for bit flip
+                                if(binResult > blockDirectory.at(n-1)){
+                                    //perform the bit flip
+                                    int xorFella = pow(10, i-1);
+                                    binResult ^= xorFella;
+                                }
+
+                                //check if it needs to be moved
+                                if(binResult != blockDirectory.at(j)){
+                                    //find the correct block
+                                    for(int k = 0; k < n; k++){
+                                        if(blockDirectory.at(k) == binResult){
+                                            j = k;
+                                        }
+                                    }
+
+                                    //delete it from the original location
+
+                                    //turn the stringstream back into a c string
+                                    stringBuffer = myStrStrm.str();
+                                    myStrStrm.clear();
+                                    char* pageDataBuffer = new char[BLOCK_SIZE + 1];
+                                    pageDataBuffer[BLOCK_SIZE] = '\0';
+                                    strcpy(pageDataBuffer, (stringBuffer).c_str());
+                                    stringBuffer.clear();
+
+                                    //build blank record and slot
+                                    int blankRecordLength = 8 + 8 + 4 + moveRecord.name.length() + moveRecord.bio.length();
+                                    string blankRecord;
+                                    blankRecord.append(blankRecordLength, ' ');
+                                    string blankSlot = "            ";
+
+                                    //put the new record in
+                                    replaceString(blankRecord, &pageDataBuffer, recordPosition);
+                                    //put the new slot in
+                                    replaceString(blankSlot, &pageDataBuffer, slotPosition);
+
+                                    //send the data into the file
+                                    ofstream outFile;
+                                    outFile.open(fName, ios::in | ios::ate | ios::binary);
+                                    if(overFlowCounter == 0){
+                                        outFile.seekp(BLOCK_SIZE*l);
+                                    }
+                                    else{
+                                        outFile.seekp(overFlowCounter);
+                                    }
+                                    outFile.write(pageDataBuffer, 4096);
+                                    outFile.close();
+
+                                    delete[] pageDataBuffer;
+
+                                    //move the record
+                                    putRecord(moveRecord);
+                                }
+                                
+                            }
+
+                        }
+
+                    }
+
+                }
+
+            }
+            
+        }
+        
     }
 
 public:
@@ -266,76 +671,293 @@ public:
         numRecords = 0;
         nextFreeBlock = 0;
         fName = indexFileName;
-        blockDirectory = vector<int>(256, -1);
-
         // Create your EmployeeIndex file and write out the initial 4 buckets
-        outputFile.open(indexFileName, ios::out | ios::binary);
         // make sure to account for the created buckets by incrementing nextFreeBlock appropriately
-        for (int j = 0; j < n; j++) {
-            outputFile.seekp(FileHeader::size() + j * BLOCK_SIZE, ios::beg);
 
-            blockDirectory[j] = nextFreeBlock;
-            nextFreeBlock += BLOCK_SIZE;
+        //open the index file
+        ofstream outFile;
+        outFile.open(indexFileName, ios::binary);
+
+        //make a new page, and put the empty pointer at the end
+        char* newPage = new char[4096];
+        string filePointer = "{0000000000}";
+        memset(newPage, ' ', 4096);
+        replaceString(filePointer, &newPage, 4084);
+
+        //declare buffer and fill with spaces
+        for(int i = 0; i < 256; i++){
+            outFile.write(newPage, 4096);
         }
+
+        delete[] newPage;
+        outFile.close();
       
     }
 
-    void initializeIndexFile(string indexFileName, FileHeader * fileHeader) {
-        // Create the index file and write out the initial 4 buckets
-        ofstream indexFile;
-        indexFile.open(indexFileName, ios::out | ios::binary);
-        if (!indexFile.is_open()) {
-            throw invalid_argument("Could not open file");
-        }
-        //
-        fileHeader->serializeHeader();
-        // make sure to account for the created buckets by incrementing nextFreeBlock appropriately
-    }   
-
     // Read csv file and add records to the index
     void createFromFile(string csvFName) {
-        ifstream inputFile(csvFName);
 
-        if (!inputFile.is_open()) {
-            throw invalid_argument("Could not open file");
-        }
+        //open the input file
+        ifstream inputFile;
+        inputFile.open(csvFName);
+
+        //start reading from the file
+        string curLine;
+        string id;
+        string manid;
+        string name;
+        string bio;
 
         
-
-        // Declare/initialize variables
-        ofstream indexFile;
-        Record record;
-        bitset<8> hashID;
-        // Initialize PageList
-        PageList * pageList = new PageList();
-
-        // Initialize index file: Consult index file structure to determine how to initialize
-        initializeIndexFile();
-        // Read records from csv file and insert into index
-            // Read line: parse record into string
+        //loop until all records have been sent to the insert function
+        while(true){
             
-            
-        while(readEmployeeRecord(inputFile, record)){
-            // record now is not populated with a single record, including the hash ID.
-            // Load string into memory page, make sure to update index page
-            // If page is full, write to disk and update index file header
-            if (!insertRecord(record)) {
-                // If record insertion fails, print error message
-                cout << "Error inserting record" << endl;
+            //process the id element
+            if(getline(inputFile, curLine, ',')){
+                id = curLine;
+                
+                //process the name element
+                getline(inputFile, curLine, ',');
+                name = curLine;
+    
+                //process the bio element
+                getline(inputFile, curLine, ',');
+                bio = curLine;
+    
+                //process the manager id element
+                getline(inputFile, curLine);
+                manid = curLine;
+                
+                vector<string> myVector{id, name, bio, manid};
+                Record myRecord(myVector);
+    
+                //send the record to insertRecord
+                insertRecord(myRecord);
+                
             }
-            // rinse/repeat until end of file
+            //if the getline is invalid, that means there is no new line, break out and close the input file
+            else{
+                break;
+            }
+
         }
-        // Close csv file
+
+        //close the input file
         inputFile.close();
-
-        // Result: 
-
-
-        
     }
 
     // Given an ID, find the relevant record and print it
-    Record findRecordById(int id) {
-        
+    void findRecordById(int searchId) {
+
+        //hash the id
+        //compute the hash function "id mod 216"
+        int hashResult = searchId%216;
+        int binResult = 0;
+        int modResult = 0;
+        int divResult = hashResult;
+
+        //convert to binary and grab i least significant bits
+        for(int k = 0; k < i; k++){
+            //build an int that looks like binary
+            modResult = divResult%2;
+            divResult = divResult/2;
+
+            binResult += pow(10,k) * modResult;
+
+        }
+
+        //check for bit flip
+        if(binResult > blockDirectory.at(n-1)){
+            //perform the bit flip
+            int xorFella = pow(10, i-1);
+            binResult ^= xorFella;
+        }
+
+        //based on the binary result, determine which block to go to, j represents the block number
+        for(int k = 0; k < n; k++){
+            if(blockDirectory.at(k) == binResult){
+                j = k;
+            }
+        }
+
+        //traverse the pages until you find the end
+        int slotCounter = 0;
+        int overFlowCounter = 0;
+
+        while(true){
+            //open the file and snatch a page
+            ifstream inFile;
+            inFile.open(fName, ios::binary);
+
+            if(overFlowCounter == 0){
+                inFile.seekg(BLOCK_SIZE*j);
+            }
+            else{
+                inFile.seekg(overFlowCounter);
+            }
+
+            //convert the c string to a silly stringstream teehee
+            char* pageDataBuffer = new char[BLOCK_SIZE + 1];
+            inFile.read(pageDataBuffer, BLOCK_SIZE);
+            pageDataBuffer[BLOCK_SIZE] = '\0';
+            string stringBuffer = pageDataBuffer;
+            delete[] pageDataBuffer;
+            stringstream myStrStrm;
+            myStrStrm.str(stringBuffer);
+            stringBuffer.clear();
+
+            inFile.close();
+
+            string inputBuffer;
+
+            //establish the first slot position
+            if(slotCounter == 0){
+
+                if (getline(myStrStrm, inputBuffer, '[')){
+                    //we found a slot
+                    if(myStrStrm.tellg() != -1){
+
+                        //take account of the position
+                        slotCounter = myStrStrm.tellg();
+                        int slotPosition = myStrStrm.tellg();
+                        slotPosition--;
+
+                        //operate on the record
+
+                        //grab the record offset and seek to the record
+                        getline(myStrStrm, inputBuffer, '*');
+                        int recordPosition = stoi(inputBuffer);
+                        myStrStrm.seekg(stoi(inputBuffer));
+                        //grab the id
+                        getline(myStrStrm, inputBuffer, '$');
+                        string id = inputBuffer;
+                        //grab the name
+                        getline(myStrStrm, inputBuffer, '$');
+                        string name = inputBuffer;
+                        //grab the bio
+                        getline(myStrStrm, inputBuffer, '$');
+                        string bio = inputBuffer;
+                        //grab the managerid
+                        getline(myStrStrm, inputBuffer, '$');
+                        string manid = inputBuffer;
+
+                        //print
+                        if(stoi(id) == searchId){
+                            //print
+                            vector<string> myVector{id, name, bio, manid};
+                            Record myRecord(myVector);
+
+                            myRecord.print();
+                        }
+
+                    }
+                    //there are no slots
+                    else{
+                        //reset the stringstream since the error bit got set
+                        myStrStrm.clear();
+                        ifstream inFile;
+                        inFile.open(fName, ios::binary);
+                        //find the correct place to reset at
+                        if(overFlowCounter == 0){
+                            inFile.seekg(BLOCK_SIZE*j);
+                        }
+                        else{
+                            inFile.seekg(overFlowCounter);
+                        }
+                        //convert the c string to a silly stringstream teehee
+                        char* pageDataBuffer = new char[BLOCK_SIZE + 1];
+                        inFile.read(pageDataBuffer, BLOCK_SIZE);
+                        pageDataBuffer[BLOCK_SIZE] = '\0';
+                        string stringBuffer = pageDataBuffer;
+                        delete[] pageDataBuffer;
+                        stringstream myStrStrm;
+                        myStrStrm.str(stringBuffer);
+                        stringBuffer.clear();
+
+                        inFile.close();
+                        //grab the overflow pointer
+                        myStrStrm.seekg(BLOCK_SIZE-11);
+                        getline(myStrStrm, inputBuffer, '}');
+                        int overflowPointer = stoi(inputBuffer);
+
+                        //check for overflow page
+                        if(overflowPointer == 0){
+                            myStrStrm.clear();
+                            break;
+                        }
+                        else{
+                            overFlowCounter = overflowPointer;
+                            slotCounter = 0;
+                        }
+
+                    }
+                }
+            }
+            //we already found a slot in this page
+            else{
+                //change the slot counter by 12, 
+                slotCounter += 12;
+                //if we're at 4084, we're at the end of the page
+                if(slotCounter == 4085){
+                    //grab the overflow pointer
+                    myStrStrm.seekg(BLOCK_SIZE-11);
+                    getline(myStrStrm, inputBuffer, '}');
+                    int overflowPointer = stoi(inputBuffer);
+
+                    if(overflowPointer == 0){
+                        myStrStrm.clear();
+                        break;
+                    }
+                    else{
+                        overFlowCounter = overflowPointer;
+                        slotCounter = 0;
+                    }
+                }
+                else{
+                    //check if it's spaces
+                    myStrStrm.seekg(slotCounter);
+
+                    //if not spaces, grab the record and operate on it
+                    if((myStrStrm.str())[slotCounter] != ' '){
+                        //hash it
+
+                        int slotPosition = myStrStrm.tellg();
+                        slotPosition--;
+                        
+                        //operate on the record
+                        //grab the record offset and seek to the record
+                        getline(myStrStrm, inputBuffer, '*');
+                        myStrStrm.seekg(stoi(inputBuffer));
+                        int recordPosition = stoi(inputBuffer);
+                        //grab the id
+                        getline(myStrStrm, inputBuffer, '$');
+                        string id = inputBuffer;
+                        //grab the name
+                        getline(myStrStrm, inputBuffer, '$');
+                        string name = inputBuffer;
+                        //grab the bio
+                        getline(myStrStrm, inputBuffer, '$');
+                        string bio = inputBuffer;
+                        //grab the managerid
+                        getline(myStrStrm, inputBuffer, '$');
+                        string manid = inputBuffer;
+
+                        if(stoi(id) == searchId){
+                            //print
+                            vector<string> myVector{id, name, bio, manid};
+                            Record myRecord(myVector);
+
+                            myRecord.print();
+
+                        }
+
+                    }
+
+                }
+
+            }
+
+        }
+
     }
 };
