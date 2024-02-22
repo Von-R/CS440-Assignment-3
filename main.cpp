@@ -18,11 +18,12 @@ using namespace std;
 
 
 int main(int argc, char* const argv[]) {
-
+    cout << "test";
     //Create the index
     LinearHashIndex emp_index("EmployeeIndex.bin");
     emp_index.createFromFile("Employee.csv");
 
+    
 
     
     char userChoice = ' ';

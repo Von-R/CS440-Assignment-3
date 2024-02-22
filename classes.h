@@ -7,6 +7,8 @@
 #include <sstream>
 #include <bitset>
 #include <cmath>
+#include <cstring> 
+#include <memory>
 
 using namespace std;
 
@@ -53,196 +55,173 @@ private:
     std::copy(toCopy.begin(), toCopy.end(), *copyHere + location);
     }
 
+    // Function to insert a new record and slot directory entry into the block
+void insertIntoBlock(std::ostringstream& outputStream, const std::string& recordString, const std::string& slotDirectoryEntry, int lastOffset, int lastLength, int slotDirStart) {
+    std::string originalBlockData = outputStream.str(); // Get the current contents of the block
 
-    // Put a record into the correct block
-    void putRecord(Record record){
+    cout << "insertIntoBlock\n";
 
-        string inputBuffer;
+    // Calculate where to insert the new record (immediately after the last record)
+    int insertPositionForRecord = lastOffset + lastLength;
+    // Calculate the new start position for the slot directory (taking into account the new record)
+    int newSlotDirStart = slotDirStart + recordString.length() + slotDirectoryEntry.length();
 
-        int currReadLocation = j*BLOCK_SIZE;
+    // Reconstruct the block with the new record and updated slot directory
+    std::string updatedBlockData;
+    updatedBlockData.reserve(BLOCK_SIZE); // Reserve enough space to avoid reallocations
 
-        // Dynamically calculate the size of the new record
-        int newRecordLength = 8 + 8 + record.bio.length() + record.name.length() + 4 + 12;
+    // Part before the new record
+    updatedBlockData.append(originalBlockData.substr(0, insertPositionForRecord));
+    // Insert the new record
+    updatedBlockData.append(recordString);
+    // Part between the new record and the old slot directory
+    updatedBlockData.append(originalBlockData.substr(insertPositionForRecord, slotDirStart - insertPositionForRecord));
+    // Insert the new slot directory entry
+    updatedBlockData.append(slotDirectoryEntry);
+    // Remaining part of the old slot directory
+    updatedBlockData.append(originalBlockData.substr(slotDirStart));
 
-        while(true)
-        {
-            ifstream inFile;
-            inFile.open(fName, ios::binary);
-            // Seek to the correct block to read from
-            inFile.seekg(currReadLocation);
+    // Clear the stringstream and insert the updated block data
+    outputStream.str("");
+    outputStream << updatedBlockData;
+}
 
-            //declare the c style buffer to read in the block
-            char* pageDataBuffer = new char[BLOCK_SIZE + 1];
-            // Read the block into the buffer
-            inFile.read(pageDataBuffer, BLOCK_SIZE);
-            // Null terminate the buffer
-            pageDataBuffer[BLOCK_SIZE] = '\0';
 
-            inFile.close();
+    
+bool canInsertRecord(int lastOffset, int lastLength, int slotDirStart, int newRecordSize) {
+    return (lastOffset + lastLength + newRecordSize) <= (slotDirStart - 12); // Adjusted condition to fit refactored variables
+}
 
-            // Convert to string
-            string stringBuffer = pageDataBuffer;
-            // Free memory
-            delete[] pageDataBuffer;
+std::string constructRecordString(const Record& record) {
+    // Builds the record string
+    return std::to_string(record.id) + '$' + record.name + '$' + record.bio + '$' + std::to_string(record.manager_id) + "$";
+}
 
-            //set the buffer to a stringstream and delete the normal string
-            stringstream myStrStrm;
-            myStrStrm.str(stringBuffer);
-            // stringBuffer.clear();
+std::string constructSlotDirectoryEntry(int lastOffset, int lastLength, int recordLength) {
+    // Calculate the starting position of the new record
+    int newOffset = lastOffset + lastLength;
 
-            int slotDirStart = BLOCK_SIZE - 12;
-            int sizeOfSlotDir = 0;
-            int lastOff = 0;
-            int lastLen = 0;
+    // Format the slot directory entry, which typically includes the offset and length of the record
+    // The specific format can vary depending on the system's requirements
+    // Here, we'll simply separate them by a comma for illustration
+    std::string slotEntry = std::to_string(newOffset) + "," + std::to_string(recordLength);
 
-            //determine how much space is currently available in the determined block, go to the slot dir and add up the offsets
-            if (getline(myStrStrm, inputBuffer, '[')){
-                //if the getline was valid
-            
-                if(myStrStrm.tellg() != -1){
-                    // GEt the position of the slot dir
-                    slotDirStart = myStrStrm.tellg();
-                    slotDirStart--;
-                    sizeOfSlotDir = BLOCK_SIZE - slotDirStart;
+    return slotEntry;
+}
 
-                    getline(myStrStrm, inputBuffer, '*');
-                    //cout << inputBuffer << endl;
-                    lastOff = stoi(inputBuffer);
 
-                    getline(myStrStrm, inputBuffer, ',');
-                    getline(myStrStrm, inputBuffer, '*');
-                    //cout << inputBuffer << endl;
-                    lastLen = stoi(inputBuffer);
-                    
-                }
-                //if the getline was invalid and cause a stringstream fail, reset the stringstream and move on
-                /*
-                else{
-                    myStrStrm.clear();
-                    ifstream inFile;
-                    inFile.open(fName, ios::binary);
-                    inFile.seekg(currReadLocation);
+void handleOverflow(std::istringstream& blockStream, int& currentReadPosition, int& nextFreeOverflow, const std::string& fName) {
+    std::string inputBuffer;
+    // Move the reading position to where the overflow pointer should be located
+    blockStream.seekg(BLOCK_SIZE - 11);
+    std::getline(blockStream, inputBuffer, '}');
 
-                    //declare the c style buffer to read in the block
-                    char* pageDataBuffer = new char[BLOCK_SIZE + 1];
-                    inFile.read(pageDataBuffer, BLOCK_SIZE);
-                    pageDataBuffer[BLOCK_SIZE] = '\0';
+    int overflowPointer = std::stoi(inputBuffer);
 
-                    inFile.close();
+    std::ofstream outFile(fName, std::ios::in | std::ios::ate | std::ios::binary);
+    if (overflowPointer == 0) { // No active overflow pointer
+        // Calculate the new overflow pointer
+        std::string newPointer = std::to_string(nextFreeOverflow);
+        nextFreeOverflow += BLOCK_SIZE; // Update to the next free overflow position
 
-                    //set the buffer to a normal string and delete the c string
-                    string stringBuffer = pageDataBuffer;
-                    delete[] pageDataBuffer;
+        // Create and update the current block with the new overflow pointer
+        // Assuming BLOCK_SIZE - (newPointer.length() + 1) is the correct position for the overflow pointer
+        std::unique_ptr<char[]> currentBlockBuffer(new char[BLOCK_SIZE + 1]);
+        blockStream.str().copy(currentBlockBuffer.get(), BLOCK_SIZE); // Copy current block data
+        currentBlockBuffer[BLOCK_SIZE] = '\0';
+        char* tempBuffer = currentBlockBuffer.get(); // Temporary char* pointing to the buffer
+        // Correctly call stringWrite by passing a char** (address of tempBuffer)
+        stringWrite(newPointer, &tempBuffer, BLOCK_SIZE - 11 - newPointer.length());
 
-                    //set the buffer to a stringstream and delete the normal string
-                    stringstream myStrStrm;
-                    myStrStrm.str(stringBuffer);
-                    stringBuffer.clear();
-                }
-                */
-            }
+        outFile.seekp(currentReadPosition); // Go back to the start of the current block
+        outFile.write(currentBlockBuffer.get(), BLOCK_SIZE); // Write the updated block with new overflow pointer
 
-            //if space, insert
-            if((lastOff + lastLen + sizeOfSlotDir + newRecordLength) <= BLOCK_SIZE){
-                //put the record in the given block, then push it back onto the file
+        // Prepare a new overflow block
+        std::unique_ptr<char[]> newPageBuffer(new char[BLOCK_SIZE + 1]);
+        std::fill_n(newPageBuffer.get(), BLOCK_SIZE, ' '); // Initialize the buffer with spaces
+        newPageBuffer[BLOCK_SIZE] = '\0';
 
-                //turn the stringstream back into a c string
-                stringBuffer = myStrStrm.str();
-                myStrStrm.clear();
-                char* pageDataBuffer = new char[BLOCK_SIZE + 1];
-                pageDataBuffer[BLOCK_SIZE] = '\0';
-                strcpy(pageDataBuffer, (stringBuffer).c_str());
-                stringBuffer.clear();
+        std::string filePointer = "{0000000000}"; // Default file pointer for the new overflow block
+        // Assuming we put the file pointer at the end of the new overflow block
+        tempBuffer = newPageBuffer.get(); // Temporary char* pointing to the buffer
+        // Correctly call stringWrite by passing a char** (address of tempBuffer)
+        stringWrite(newPointer, &tempBuffer, BLOCK_SIZE - 11 - newPointer.length());
+        //stringWrite(filePointer, newPageBuffer.get(), BLOCK_SIZE - filePointer.length() - 1);
 
-                //build record
-                string newRecord = to_string(record.id) + '$' + record.name + '$' + record.bio + '$' + to_string(record.manager_id) + "$";
-                string newSlot = "[*****,****]";
-                //build slot
-                newSlot.replace(1, to_string(lastOff + lastLen).length(), to_string(lastOff + lastLen));
-                newSlot.replace(7, to_string(newRecord.length()).length(), to_string(newRecord.length()));
-                //cout << newSlot << endl;
+        outFile.seekp(std::stoi(newPointer)); // Move to the new overflow block's position
+        outFile.write(newPageBuffer.get(), BLOCK_SIZE); // Write the new overflow block
+        
+        currentReadPosition = std::stoi(newPointer); // Update the read location to the new overflow block
+    } else {
+        // If there's already an overflow pointer, move to that block for the next operation
+        currentReadPosition = overflowPointer;
+    }
+    
+    outFile.close();
+}
 
-                //put the new record in
-                replaceString(newRecord, &pageDataBuffer, (lastOff + lastLen));
-                //put the new slot in
-                replaceString(newSlot, &pageDataBuffer, (slotDirStart - 12));
 
-                //send the data into the file
-                ofstream outFile;
-                outFile.open(fName, ios::in | ios::ate | ios::binary);
-                outFile.seekp(currReadLocation);
-                outFile.write(pageDataBuffer, 4096);
-                outFile.close();
 
-                delete[] pageDataBuffer;
+    // Function to insert a record into an appropriate block within a file
+void insertRecordIntoBlock(const Record& record) {
+    cout << "insertRecordIntoBlock\n";
+    auto currentReadPosition = j * BLOCK_SIZE; // Assuming 'j' is correctly defined and used elsewhere
 
-                break;
+    // Calculate total length of the new record dynamically
+    auto recordSize = sizeof(long long) * 2 + record.bio.size() + record.name.size() + sizeof(int) + 12;
 
-            }
-            //if no space, insert into overflow
-            else{
-                //check if we currently already have a valid file pointer
-                myStrStrm.seekg(BLOCK_SIZE-11);
-                //getline(myStrStrm, inputBuffer, '{');
-                getline(myStrStrm, inputBuffer, '}');
-
-                int overflowPointer = stoi(inputBuffer);
-
-                //No active pointer on this page so the next one needs to be created
-                if(overflowPointer == 0)
-                {
-                    //create an overflow page and store it there
-                    stringBuffer = myStrStrm.str();
-                    myStrStrm.clear();
-                    
-                    //create a buffer to write the new page
-                    char* pageDataBuffer = new char[BLOCK_SIZE + 1];
-                    pageDataBuffer[BLOCK_SIZE] = '\0';
-                    strcpy(pageDataBuffer, (stringBuffer).c_str());
-                    stringBuffer.clear();
-
-                    
-                    //update the pointer in the current page, and write it to the file
-
-                    string newPointer = to_string(nextFreeOverflow);
-                    nextFreeOverflow += BLOCK_SIZE;
-
-                    int placementLength = (BLOCK_SIZE-(newPointer.length()+1));
-
-                    replaceString(newPointer, &pageDataBuffer, placementLength);
-
-                    //seek to the correct position in the file
-                    //Write contents to the file
-                    ofstream outFile;
-                    outFile.open(fName, ios::in | ios::ate | ios::binary);
-                    outFile.seekp(currReadLocation);
-                    outFile.write(pageDataBuffer, BLOCK_SIZE);
-
-                    string filePointer = "{0000000000}";
-                    memset(pageDataBuffer, ' ', BLOCK_SIZE);
-                    replaceString(filePointer, &pageDataBuffer, 4084);
-
-                    outFile.seekp(stoi(newPointer));
-                    outFile.write(pageDataBuffer, BLOCK_SIZE);
-
-                    outFile.close();
-                    //update read location
-                    currReadLocation = stoi(newPointer);
-
-                    delete[] pageDataBuffer;
-                }else
-                {
-                    //move past the current page
-                    currReadLocation = overflowPointer; 
-                }
-            }
-            
+    for (;;) {
+        cout << "for\n";
+        std::ifstream fileStream(fName, std::ios::binary);
+        if (!fileStream) {
+            cout << "Failed to open file\n";
+            break; // Exit if file cannot be opened
         }
+
+        // Allocate memory for reading block data
+        auto blockBuffer = std::make_unique<char[]>(BLOCK_SIZE + 1);
+        fileStream.seekg(currentReadPosition).read(blockBuffer.get(), BLOCK_SIZE);
+        blockBuffer[BLOCK_SIZE] = '\0'; // Ensure null-termination
+
+        std::string blockData(blockBuffer.get());
+        std::istringstream blockStream(blockData);
+
+        int slotDirectoryStart = BLOCK_SIZE - 12, offsetLastRecord = 0, lengthLastRecord = 0;
+        // Assuming canInsertRecord and other necessary logic is implemented correctly
+
+        if (canInsertRecord(offsetLastRecord, lengthLastRecord, slotDirectoryStart, recordSize)) {
+            std::ostringstream blockOutputStream;
+            blockOutputStream.write(blockBuffer.get(), BLOCK_SIZE);
+
+            // Construct new record string and slot directory entry
+            std::string newRecordString = constructRecordString(record);
+            std::string newSlotDirectoryEntry = constructSlotDirectoryEntry(offsetLastRecord, lengthLastRecord, newRecordString.length());
+
+            // Insert new record and slot directory entry into block
+            insertIntoBlock(blockOutputStream, newRecordString, newSlotDirectoryEntry, offsetLastRecord, lengthLastRecord, slotDirectoryStart);
+
+            // Write modified block back to file
+            std::ofstream outFile(fName, std::ios::in | std::ios::ate | std::ios::binary);
+            outFile.seekp(currentReadPosition);
+            outFile.write(blockOutputStream.str().c_str(), BLOCK_SIZE);
+
+            cout << "Record inserted\n";
+            break; // Successfully inserted the record, exit loop
+        } else {
+            handleOverflow(blockStream, currentReadPosition, nextFreeOverflow, fName);
+            // After handling overflow, if you're not updating currentReadPosition to a new value that will eventually fail canInsertRecord, you will loop indefinitely.
+            // Ensure handleOverflow properly updates conditions or states to prevent endless looping.
+            cout << "Handled overflow\n";
+            break; // Consider breaking after handling overflow or ensure the next iteration can exit.
+        }
+    }
+
 
     }
 
     // Insert new record into index
     void insertRecord(Record record) {
+        cout << "insertRecord\n";
         
         /*
         //the size needed to store the new record and its corresponding slot dir slot
@@ -302,7 +281,7 @@ private:
         string inputBuffer;
 
         //put the record in the correct page
-        putRecord(record);
+        insertRecordIntoBlock(record);
 
         
         
@@ -337,7 +316,7 @@ private:
             //update the block dir
             blockDirectory.push_back(binResult);
 
-            int allmyfellascounter = 1;
+            //int allmyfellascounter = 1;
 
             //for each current page in the file
             for(int l = 0; l < n-1; l++)
@@ -454,9 +433,9 @@ private:
                                     string blankSlot = "            ";
 
                                     //put the new record in
-                                    replaceString(blankRecord, &pageDataBuffer, recordPosition);
+                                    stringWrite(blankRecord, &pageDataBuffer, recordPosition);
                                     //put the new slot in
-                                    replaceString(blankSlot, &pageDataBuffer, slotPosition);
+                                    stringWrite(blankSlot, &pageDataBuffer, slotPosition);
 
                                     //send the data into the file
                                     ofstream outFile;
@@ -473,7 +452,7 @@ private:
                                     delete[] pageDataBuffer;
 
                                     //move the record
-                                    putRecord(moveRecord);
+                                    insertRecordIntoBlock(moveRecord);
                                 }
                                 
 
@@ -623,9 +602,9 @@ private:
                                     string blankSlot = "            ";
 
                                     //put the new record in
-                                    replaceString(blankRecord, &pageDataBuffer, recordPosition);
+                                    stringWrite(blankRecord, &pageDataBuffer, recordPosition);
                                     //put the new slot in
-                                    replaceString(blankSlot, &pageDataBuffer, slotPosition);
+                                    stringWrite(blankSlot, &pageDataBuffer, slotPosition);
 
                                     //send the data into the file
                                     ofstream outFile;
@@ -642,7 +621,7 @@ private:
                                     delete[] pageDataBuffer;
 
                                     //move the record
-                                    putRecord(moveRecord);
+                                    insertRecordIntoBlock(moveRecord);
                                 }
                                 
                             }
@@ -677,7 +656,7 @@ public:
         char* newPage = new char[4096];
         string filePointer = "{0000000000}";
         memset(newPage, ' ', 4096);
-        replaceString(filePointer, &newPage, 4084);
+        stringWrite(filePointer, &newPage, 4084);
 
         //declare buffer and fill with spaces
         for(int i = 0; i < 256; i++){
@@ -691,6 +670,7 @@ public:
 
     // Read csv file and add records to the index
     void createFromFile(string csvFName) {
+        cout << "createFromFile\n";
 
         //open the input file
         ifstream inputFile;
@@ -709,6 +689,7 @@ public:
             
             //process the id element
             if(getline(inputFile, curLine, ',')){
+                
                 id = curLine;
                 
                 //process the name element
@@ -873,7 +854,16 @@ public:
                         //grab the overflow pointer
                         myStrStrm.seekg(BLOCK_SIZE-11);
                         getline(myStrStrm, inputBuffer, '}');
-                        int overflowPointer = stoi(inputBuffer);
+                        int overflowPointer;
+                        try {
+                            overflowPointer = std::stoi(inputBuffer);
+                            // Use overflowPointer as needed
+                        } catch (const std::invalid_argument& e) {
+                            // Handle error, e.g., log it, set overflowPointer to a default value, etc.
+                            std::cerr << "Invalid overflow pointer: " << inputBuffer << std::endl;
+                            // Consider setting overflowPointer to a default or error value
+                        }
+
 
                         //check for overflow page
                         if(overflowPointer == 0){
