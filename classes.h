@@ -49,15 +49,10 @@ private:
     int hashResult;
     string pageBuffer;
 
-    // Replace a substring in a string with another string
-    void replaceString(string toCopy, char** copyHere, int location){
-
-        for(int i = 0; i < toCopy.length(); i++){
-            
-            (*copyHere)[i+location] = toCopy[i];
-        }
-
+    void stringWrite(const std::string& toCopy, char** copyHere, int location) {
+    std::copy(toCopy.begin(), toCopy.end(), *copyHere + location);
     }
+
 
     // Put a record into the correct block
     void putRecord(Record record){
