@@ -47,7 +47,6 @@ private:
     int nextFreeOverflow;
     string fName;      // Name of index file
     int hashResult;
-    string pageBuffer;
 
     void stringWrite(const std::string& toCopy, char** copyHere, int location) {
     std::copy(toCopy.begin(), toCopy.end(), *copyHere + location);
@@ -163,9 +162,9 @@ private:
                 //cout << newSlot << endl;
 
                 //put the new record in
-                replaceString(newRecord, &pageDataBuffer, (lastOff + lastLen));
+                stringWrite(newRecord, &pageDataBuffer, (lastOff + lastLen));
                 //put the new slot in
-                replaceString(newSlot, &pageDataBuffer, (slotDirStart - 12));
+                stringWrite(newSlot, &pageDataBuffer, (slotDirStart - 12));
 
                 //send the data into the file
                 ofstream outFile;
@@ -209,7 +208,7 @@ private:
 
                     int placementLength = (BLOCK_SIZE-(newPointer.length()+1));
 
-                    replaceString(newPointer, &pageDataBuffer, placementLength);
+                    stringWrite(newPointer, &pageDataBuffer, placementLength);
 
                     //seek to the correct position in the file
                     //Write contents to the file
@@ -220,7 +219,7 @@ private:
 
                     string filePointer = "{0000000000}";
                     memset(pageDataBuffer, ' ', BLOCK_SIZE);
-                    replaceString(filePointer, &pageDataBuffer, 4084);
+                    stringWrite(filePointer, &pageDataBuffer, 4084);
 
                     outFile.seekp(stoi(newPointer));
                     outFile.write(pageDataBuffer, BLOCK_SIZE);
@@ -454,9 +453,9 @@ private:
                                     string blankSlot = "            ";
 
                                     //put the new record in
-                                    replaceString(blankRecord, &pageDataBuffer, recordPosition);
+                                    stringWrite(blankRecord, &pageDataBuffer, recordPosition);
                                     //put the new slot in
-                                    replaceString(blankSlot, &pageDataBuffer, slotPosition);
+                                    stringWrite(blankSlot, &pageDataBuffer, slotPosition);
 
                                     //send the data into the file
                                     ofstream outFile;
@@ -623,9 +622,9 @@ private:
                                     string blankSlot = "            ";
 
                                     //put the new record in
-                                    replaceString(blankRecord, &pageDataBuffer, recordPosition);
+                                    stringWrite(blankRecord, &pageDataBuffer, recordPosition);
                                     //put the new slot in
-                                    replaceString(blankSlot, &pageDataBuffer, slotPosition);
+                                    stringWrite(blankSlot, &pageDataBuffer, slotPosition);
 
                                     //send the data into the file
                                     ofstream outFile;
@@ -677,7 +676,7 @@ public:
         char* newPage = new char[4096];
         string filePointer = "{0000000000}";
         memset(newPage, ' ', 4096);
-        replaceString(filePointer, &newPage, 4084);
+        stringWrite(filePointer, &newPage, 4084);
 
         //declare buffer and fill with spaces
         for(int i = 0; i < 256; i++){
