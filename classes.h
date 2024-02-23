@@ -77,56 +77,45 @@ private:
             strStream.str(stringBuffer);
             stringBuffer.clear();
 
-            int slotDirStart = BLOCK_SIZE - 12;
-            int sizeOfSlotDir = 0;
-            int lastOff = 0;
-            int lastLen = 0;
+            int recordDirectoryOffset = BLOCK_SIZE - 12;
+            int recDirSize = 0;
+            int recentOffset = 0;
+            int recentLength = 0;
 
             //determine how much space is currently available in the determined block, go to the slot dir and add up the offsets
             if (getline(strStream, offsetBuffer, '[')){
                 //if the getline was valid
                 if(strStream.tellg() != -1){
-                    slotDirStart = strStream.tellg();
-                    slotDirStart--;
-                    sizeOfSlotDir = BLOCK_SIZE - slotDirStart;
+                    recordDirectoryOffset = strStream.tellg();
+                    recordDirectoryOffset--;
+                    recDirSize = BLOCK_SIZE - recordDirectoryOffset;
 
                     getline(strStream, offsetBuffer, '*');
-                    //cout << offsetBuffer << endl;
-                    lastOff = stoi(offsetBuffer);
+                    recentOffset = stoi(offsetBuffer);
 
                     getline(strStream, offsetBuffer, ',');
                     getline(strStream, offsetBuffer, '*');
-                    //cout << offsetBuffer << endl;
-                    lastLen = stoi(offsetBuffer);
+                    recentLength = stoi(offsetBuffer);
                     
                 }
                 //if the getline was invalid and cause a stringstream fail, reset the stringstream and move on
                 else{
-                    strStream.clear();
-                    ifstream inputFile;
-                    inputFile.open(fName, ios::binary);
+                    ifstream inputFile(fName, ios::binary);
                     inputFile.seekg(readBlock);
 
-                    //declare the c style buffer to read in the block
-                    char* blockBuffer = new char[BLOCK_SIZE + 1];
-                    inputFile.read(blockBuffer, BLOCK_SIZE);
-                    blockBuffer[BLOCK_SIZE] = '\0';
-
+                    string stringBuffer;
+                    stringBuffer.resize(BLOCK_SIZE);
+                    inputFile.read(&stringBuffer[0], BLOCK_SIZE);
                     inputFile.close();
 
-                    //set the buffer to a normal string and delete the c string
-                    string stringBuffer = blockBuffer;
-                    delete[] blockBuffer;
+                    stringstream strStream(stringBuffer);
+                    // No need to clear stringBuffer since we're reassigning it in the next line
 
-                    //set the buffer to a stringstream and delete the normal string
-                    stringstream strStream;
-                    strStream.str(stringBuffer);
-                    stringBuffer.clear();
                 }
             }
 
             //if space, insert
-            if((lastOff + lastLen + sizeOfSlotDir + recordSize) <= BLOCK_SIZE){
+            if((recentOffset + recentLength + recDirSize + recordSize) <= BLOCK_SIZE){
                 //put the record in the given block, then push it back onto the file
 
                 //turn the stringstream back into a c string
@@ -135,27 +124,27 @@ private:
                 char* blockBuffer = new char[BLOCK_SIZE + 1];
                 blockBuffer[BLOCK_SIZE] = '\0';
                 strcpy(blockBuffer, (stringBuffer).c_str());
-                stringBuffer.clear();
+               // stringBuffer.clear();
 
                 //build record
                 string newRecord = to_string(record.id) + '$' + record.name + '$' + record.bio + '$' + to_string(record.manager_id) + "$";
                 string newSlot = "[*****,****]";
                 //build slot
-                newSlot.replace(1, to_string(lastOff + lastLen).length(), to_string(lastOff + lastLen));
+                newSlot.replace(1, to_string(recentOffset + recentLength).length(), to_string(recentOffset + recentLength));
                 newSlot.replace(7, to_string(newRecord.length()).length(), to_string(newRecord.length()));
                 //cout << newSlot << endl;
 
                 //put the new record in
-                stringWrite(newRecord, &blockBuffer, (lastOff + lastLen));
+                stringWrite(newRecord, &blockBuffer, (recentOffset + recentLength));
                 //put the new slot in
-                stringWrite(newSlot, &blockBuffer, (slotDirStart - 12));
+                stringWrite(newSlot, &blockBuffer, (recordDirectoryOffset - 12));
 
                 //send the data into the file
-                ofstream outFile;
-                outFile.open(fName, ios::in | ios::ate | ios::binary);
-                outFile.seekp(readBlock);
-                outFile.write(blockBuffer, 4096);
-                outFile.close();
+                ofstream outputFile;
+                outputFile.open(fName, ios::in | ios::ate | ios::binary);
+                outputFile.seekp(readBlock);
+                outputFile.write(blockBuffer, 4096);
+                outputFile.close();
 
                 delete[] blockBuffer;
 
@@ -169,10 +158,10 @@ private:
                 //getline(strStream, offsetBuffer, '{');
                 getline(strStream, offsetBuffer, '}');
 
-                int overflowPointer = stoi(offsetBuffer);
+                int ptrOverflowBucket = stoi(offsetBuffer);
 
                 //No active pointer on this page so the next one needs to be created
-                if(overflowPointer == 0)
+                if(ptrOverflowBucket == 0)
                 {
                     //create an overflow page and store it there
                     stringBuffer = strStream.str();
@@ -187,36 +176,37 @@ private:
                     
                     //update the pointer in the current page, and write it to the file
 
-                    string newPointer = to_string(nextOverflowBucket);
+                    string tmpPtr = to_string(nextOverflowBucket);
                     nextOverflowBucket += BLOCK_SIZE;
 
-                    int placementLength = (BLOCK_SIZE-(newPointer.length()+1));
+                    int overflowBlockDist = (BLOCK_SIZE-(tmpPtr.length()+1));
 
-                    stringWrite(newPointer, &blockBuffer, placementLength);
+                    stringWrite(tmpPtr, &blockBuffer, overflowBlockDist);
 
                     //seek to the correct position in the file
                     //Write contents to the file
-                    ofstream outFile;
-                    outFile.open(fName, ios::in | ios::ate | ios::binary);
-                    outFile.seekp(readBlock);
-                    outFile.write(blockBuffer, BLOCK_SIZE);
+                    ofstream outputFile;
+                    outputFile.open(fName, ios::in | ios::ate | ios::binary);
+                    outputFile.seekp(readBlock);
+                    outputFile.write(blockBuffer, BLOCK_SIZE);
 
                     string filePointer = "{0000000000}";
                     memset(blockBuffer, ' ', BLOCK_SIZE);
                     stringWrite(filePointer, &blockBuffer, 4084);
 
-                    outFile.seekp(stoi(newPointer));
-                    outFile.write(blockBuffer, BLOCK_SIZE);
+                    outputFile.seekp(stoi(tmpPtr));
+                    outputFile.write(blockBuffer, BLOCK_SIZE);
 
-                    outFile.close();
+                    outputFile.close();
                     //update read location
-                    readBlock = stoi(newPointer);
+                    readBlock = stoi(tmpPtr);
 
                     delete[] blockBuffer;
-                }else
-                {
+                }
+                
+                else {
                     //move past the current page
-                    readBlock = overflowPointer; 
+                    readBlock = ptrOverflowBucket; 
                 }
             }
             
@@ -442,16 +432,16 @@ private:
                                     stringWrite(blankSlot, &blockBuffer, slotPosition);
 
                                     //send the data into the file
-                                    ofstream outFile;
-                                    outFile.open(fName, ios::in | ios::ate | ios::binary);
+                                    ofstream outputFile;
+                                    outputFile.open(fName, ios::in | ios::ate | ios::binary);
                                     if(overFlowCounter == 0){
-                                        outFile.seekp(BLOCK_SIZE*l);
+                                        outputFile.seekp(BLOCK_SIZE*l);
                                     }
                                     else{
-                                        outFile.seekp(overFlowCounter);
+                                        outputFile.seekp(overFlowCounter);
                                     }
-                                    outFile.write(blockBuffer, 4096);
-                                    outFile.close();
+                                    outputFile.write(blockBuffer, 4096);
+                                    outputFile.close();
 
                                     delete[] blockBuffer;
 
@@ -488,15 +478,15 @@ private:
                                 //grab the overflow pointer
                                 strStream.seekg(BLOCK_SIZE-11);
                                 getline(strStream, inputBuffer, '}');
-                                int overflowPointer = stoi(inputBuffer);
+                                int ptrOverflowBucket = stoi(inputBuffer);
 
                                 //check for overflow page
-                                if(overflowPointer == 0){
+                                if(ptrOverflowBucket == 0){
                                     strStream.clear();
                                     break;
                                 }
                                 else{
-                                    overFlowCounter = overflowPointer;
+                                    overFlowCounter = ptrOverflowBucket;
                                     slotCounter = 0;
                                 }
 
@@ -512,14 +502,14 @@ private:
                             //grab the overflow pointer
                             strStream.seekg(BLOCK_SIZE-11);
                             getline(strStream, inputBuffer, '}');
-                            int overflowPointer = stoi(inputBuffer);
+                            int ptrOverflowBucket = stoi(inputBuffer);
 
-                            if(overflowPointer == 0){
+                            if(ptrOverflowBucket == 0){
                                 strStream.clear();
                                 break;
                             }
                             else{
-                                overFlowCounter = overflowPointer;
+                                overFlowCounter = ptrOverflowBucket;
                                 slotCounter = 0;
                             }
                         }
@@ -610,16 +600,16 @@ private:
                                     stringWrite(blankSlot, &blockBuffer, slotPosition);
 
                                     //send the data into the file
-                                    ofstream outFile;
-                                    outFile.open(fName, ios::in | ios::ate | ios::binary);
+                                    ofstream outputFile;
+                                    outputFile.open(fName, ios::in | ios::ate | ios::binary);
                                     if(overFlowCounter == 0){
-                                        outFile.seekp(BLOCK_SIZE*l);
+                                        outputFile.seekp(BLOCK_SIZE*l);
                                     }
                                     else{
-                                        outFile.seekp(overFlowCounter);
+                                        outputFile.seekp(overFlowCounter);
                                     }
-                                    outFile.write(blockBuffer, 4096);
-                                    outFile.close();
+                                    outputFile.write(blockBuffer, 4096);
+                                    outputFile.close();
 
                                     delete[] blockBuffer;
 
@@ -652,8 +642,8 @@ public:
         // make sure to account for the created buckets by incrementing nextFreeBlock appropriately
 
         //open the index file
-        ofstream outFile;
-        outFile.open(indexFileName, ios::binary);
+        ofstream outputFile;
+        outputFile.open(indexFileName, ios::binary);
 
         //make a new page, and put the empty pointer at the end
         char* newPage = new char[4096];
@@ -663,11 +653,11 @@ public:
 
         //declare buffer and fill with spaces
         for(int i = 0; i < 256; i++){
-            outFile.write(newPage, 4096);
+            outputFile.write(newPage, 4096);
         }
 
         delete[] newPage;
-        outFile.close();
+        outputFile.close();
       
     }
 
@@ -857,15 +847,15 @@ public:
                         //grab the overflow pointer
                         strStream.seekg(BLOCK_SIZE-11);
                         getline(strStream, inputBuffer, '}');
-                        int overflowPointer = stoi(inputBuffer);
+                        int ptrOverflowBucket = stoi(inputBuffer);
 
                         //check for overflow page
-                        if(overflowPointer == 0){
+                        if(ptrOverflowBucket == 0){
                             strStream.clear();
                             break;
                         }
                         else{
-                            overFlowCounter = overflowPointer;
+                            overFlowCounter = ptrOverflowBucket;
                             slotCounter = 0;
                         }
 
@@ -881,14 +871,14 @@ public:
                     //grab the overflow pointer
                     strStream.seekg(BLOCK_SIZE-11);
                     getline(strStream, inputBuffer, '}');
-                    int overflowPointer = stoi(inputBuffer);
+                    int ptrOverflowBucket = stoi(inputBuffer);
 
-                    if(overflowPointer == 0){
+                    if(ptrOverflowBucket == 0){
                         strStream.clear();
                         break;
                     }
                     else{
-                        overFlowCounter = overflowPointer;
+                        overFlowCounter = ptrOverflowBucket;
                         slotCounter = 0;
                     }
                 }
