@@ -23,18 +23,16 @@ int main(int argc, char* const argv[]) {
     LinearHashIndex emp_index("EmployeeIndex.bin");
     emp_index.createFromFile("Employee.csv");
 
-
-    
     char userChoice = ' ';
     int userId = 0;
 
-    while(userChoice != 'n')
+    while(userChoice != 'q')
     {
-      cout << "Please enter a Employee ID to search: ";
+      cout << "Input search ID: ";
       cin >> userId;
       emp_index.findRecordById(userId);
 
-      cout << "Do you want to search again[y,n]: ";
+      cout << "Next ID: ('q' to quit) ";
       cin >> userChoice;
       userChoice = tolower(userChoice);
     }
