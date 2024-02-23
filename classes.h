@@ -7,7 +7,6 @@
 #include <sstream>
 #include <bitset>
 #include <cmath>
-
 using namespace std;
 
 const int MAX_RECORD_SIZE = 730;
@@ -46,9 +45,9 @@ private:
     int j;                      // Used to search the blockdir and find the right page for a given record id
     int numRecords;             // Records currently in index. Used to test whether to increase n
     int nextFreeBlock;          // Next place to write a bucket. Should increment it by BLOCK_SIZE whenever a bucket is written to EmployeeIndex
-    int nextOverflowBucket;
+    int nextOverflowBucket;     // Next place to write an overflow bucket. Should increment it by BLOCK_SIZE whenever an overflow bucket is written to EmployeeIndex
     string fName;               // Name of index file
-    int hashID;
+    int hashID;                 // The hash value of the record id
     
     // Helper function to write a string to a c string
     void stringWrite(const string& toCopy, char** copyHere, int location) {
@@ -68,12 +67,9 @@ private:
 
     // Inserts a record into a block
     void insertRecordIntoIndexIntoBlock(Record record){
-
-        // 
         int readBlock = j*BLOCK_SIZE;
         string offsetBuffer;
 
-        // The size needed to store the new record and its corresponding slot dir slot
         // Dynamically calculate the size of the record, variable length fields
         int recordSize = 32 + record.bio.length() + record.name.length();
 
@@ -104,9 +100,7 @@ private:
 
             // Get the offset and length of the most recent record
             if (getline(strStream, offsetBuffer, '[')){
-                // We found a slot
                 if(strStream.tellg() != -1){
-                    // Take account of the position
                     recordDirectoryOffset = strStream.tellg();
                     recordDirectoryOffset--;
                     recDirSize = BLOCK_SIZE - recordDirectoryOffset;
@@ -123,7 +117,7 @@ private:
                 }
                 // If getline failure, reset the stringstream and move on
                 else{
-                    // Reset the stringstream since the error bit got set
+                    // Reset stringstream
                     ifstream inputFile(fName, ios::binary);
                     inputFile.seekg(readBlock);
 
@@ -145,10 +139,10 @@ private:
                 blockBuffer[BLOCK_SIZE] = '\0';
                 strcpy(blockBuffer, (stringBuffer).c_str());
         
-
                 // Construct the new record string from the record object fields
                 string newRecord = to_string(record.id) + '%' + record.name + '%' + record.bio + '%' + to_string(record.manager_id) + "%";
                 string newSlot = "[*****,****]";
+
                 // Construct the new slot string
                 newSlot.replace(1, to_string(recentOffset + recentLength).length(), to_string(recentOffset + recentLength));
                 newSlot.replace(7, to_string(newRecord.length()).length(), to_string(newRecord.length()));
@@ -170,8 +164,10 @@ private:
                 break;
 
             }
+
             // If there is not enough space in the block, move to overflow
             else{
+
                 // Get the overflow pointer
                 strStream.seekg(BLOCK_SIZE-11);
                 getline(strStream, offsetBuffer, '}');
@@ -192,7 +188,6 @@ private:
                     strcpy(blockBuffer, (stringBuffer).c_str());
                     stringBuffer.clear();
 
-                    
                     // Write the overflow pointer to the end of the block
                     string tmpPtr = to_string(nextOverflowBucket);
                     nextOverflowBucket += BLOCK_SIZE;
@@ -242,7 +237,6 @@ private:
             blockDirectory.push_back(11);
             nextFreeBlock = 4*BLOCK_SIZE;
             nextOverflowBucket = 4096*256;
-
         }
 
         // Calculate the hash function value for record
@@ -345,6 +339,7 @@ private:
                                 int posnOfRecord = stoi(stringBuffer);
                                 strStream.seekg(stoi(stringBuffer));
                                 
+                                // Get fields
                                 getline(strStream, stringBuffer, '%');
                                 string id = stringBuffer;
                             
@@ -357,39 +352,36 @@ private:
                                 getline(strStream, stringBuffer, '%');
                                 string managerID = stringBuffer;
 
-                                //make the record and send it into the file in the new location
+                                // Create a record object
                                 vector<string> fieldArray{id, name, bio, managerID};
                                 Record tmpRecord(fieldArray);
 
-                                //hash it
                                 int hashID = tmpRecord.id%216;
                                 int divResult = hashID;
                                 int bitMask = 0;
                                 int xorResult = 0;
                                
 
-                                //convert to binary and grab i least significant bits
+                                // Bitmask calc
                                 bitMask = leastSigBits(bitMask, xorResult, divResult);
 
-                                //check for bit flip
+                                // Bit flip inspection
                                 if(bitMask > blockDirectory.at(n-1)){
-                                    //perform the bit flip
+                                    // Flip bit
                                     int xorRes = pow(10, i-1);
                                     bitMask = bitMask - xorRes;
                                 }
 
-                                //check if it needs to be moved
+                                // Determine if bitflipped record must be moved
                                 if(bitMask != blockDirectory.at(j)){
-                                    //find the correct block
+                                    // Determine correct block to move bit flipped record to
                                     for(int k = 0; k < n; k++){
                                         if(blockDirectory.at(k) == bitMask){
                                             j = k;
                                         }
                                     }
 
-                                    //delete the record and slot from the original location
-
-                                    //turn the stringstream back into a c string
+                                    // Convert the stringstream to a c string
                                     stringBuffer = strStream.str();
                                     strStream.clear();
                                     char* blockBuffer = new char[BLOCK_SIZE + 1];
@@ -397,52 +389,53 @@ private:
                                     strcpy(blockBuffer, (stringBuffer).c_str());
                                     stringBuffer.clear();
 
-                                    //build blank record and slot
+                                    // Construct the new template record
                                     int templateRecordLen = 8 + 8 + 4 + tmpRecord.name.length() + tmpRecord.bio.length();
                                     string templateRecord;
                                     templateRecord.append(templateRecordLen, ' ');
                                     string slotEmpty = "            ";
 
-                                    //put the new record in
                                     stringWrite(templateRecord, &blockBuffer, posnOfRecord);
-                                    //put the new slot in
                                     stringWrite(slotEmpty, &blockBuffer, slotPosition);
 
-                                    //send the data into the file
+                                    // Write the block buffer to the file
                                     ofstream outputFile;
                                     outputFile.open(fName, ios::in | ios::ate | ios::binary);
                                     if(overflowBucketIndex == 0){
                                         outputFile.seekp(BLOCK_SIZE*l);
                                     }
-                                    else{
+                                    else {
                                         outputFile.seekp(overflowBucketIndex);
                                     }
                                     outputFile.write(blockBuffer, 4096);
                                     outputFile.close();
 
+                                    // Tidy up
                                     delete[] blockBuffer;
 
-                                    //move the record
+                                    // Transfer record to new block
                                     insertRecordIntoIndexIntoBlock(tmpRecord);
                                     numRecords++;
                                 }
-                                
-
                             }
-                            //there are no slots
+
+                            // Otherwise if there are no slots available
                             else{
-                                //reset the stringstream since the error bit got set
+                                
+                                // Convert the stringstream to a c string for error bit
                                 strStream.clear();
                                 ifstream inputFile;
                                 inputFile.open(fName, ios::binary);
-                                //find the correct place to reset at
+
+                                // Determine correct block to move bit flipped record to
                                 if(overflowBucketIndex == 0){
                                     inputFile.seekg(BLOCK_SIZE*l);
                                 }
                                 else{
                                     inputFile.seekg(overflowBucketIndex);
                                 }
-                                //convert the c string to a silly stringstream teehee
+                                
+                                // Convert the c string to a stringstream
                                 char* blockBuffer = new char[BLOCK_SIZE + 1];
                                 inputFile.read(blockBuffer, BLOCK_SIZE);
                                 blockBuffer[BLOCK_SIZE] = '\0';
@@ -451,14 +444,14 @@ private:
                                 stringstream strStream;
                                 strStream.str(stringBuffer);
                                 stringBuffer.clear();
-
                                 inputFile.close();
-                                //grab the overflow pointer
+
+                                // Retrieve the pointer to the overflow block
                                 strStream.seekg(BLOCK_SIZE-11);
                                 getline(strStream, stringBuffer, '}');
                                 int ptrOverflowBucket = stoi(stringBuffer);
 
-                                //check for overflow page
+                                // Determine if there is an overflow page
                                 if(ptrOverflowBucket == 0){
                                     strStream.clear();
                                     break;
@@ -467,17 +460,20 @@ private:
                                     overflowBucketIndex = ptrOverflowBucket;
                                     slotPosn = 0;
                                 }
-
                             }
                         }
                     }
-                    //we already found a slot in this page
+                    
+                    // Slot found
                     else{
-                        //change the slot counter by 12, 
+
+                        // Increment slot position
                         slotPosn += 12;
-                        //if we're at 4084, we're at the end of the page
+
+                        // End of page reached
                         if(slotPosn == 4085){
-                            //grab the overflow pointer
+
+                            // Retrieve the pointer to the overflow block
                             strStream.seekg(BLOCK_SIZE-11);
                             getline(strStream, stringBuffer, '}');
                             int ptrOverflowBucket = stoi(stringBuffer);
@@ -491,67 +487,62 @@ private:
                                 slotPosn = 0;
                             }
                         }
-                        else{
-                            //check if it's spaces
+
+                        else {
                             strStream.seekg(slotPosn);
 
-                            //if not spaces, grab the record and operate on it
+                             // If not empty space, get record
                             if((strStream.str())[slotPosn] != ' '){
-                                //hash it
 
                                 int slotPosition = strStream.tellg();
                                 slotPosition--;
                                 
-                                //operate on the record
-
-                                //grab the record offset and seek to the record
+                                // From record offset, seek to record position in stream
                                 getline(strStream, stringBuffer, '*');
                                 strStream.seekg(stoi(stringBuffer));
                                 int posnOfRecord = stoi(stringBuffer);
-                                //grab the id
+                               
                                 getline(strStream, stringBuffer, '%');
                                 string id = stringBuffer;
-                                //grab the name
+                        
                                 getline(strStream, stringBuffer, '%');
                                 string name = stringBuffer;
-                                //grab the bio
+                              
                                 getline(strStream, stringBuffer, '%');
                                 string bio = stringBuffer;
-                                //grab the managerid
+                                
                                 getline(strStream, stringBuffer, '%');
                                 string managerID = stringBuffer;
 
-                                //make the record and send it into the file in the new location
+                                // Create record
                                 vector<string> fieldArray{id, name, bio, managerID};
                                 Record tmpRecord(fieldArray);
 
-                                //hash it
                                 int hashID = tmpRecord.id%216;
                                 int bitMask = 0;
                                 int xorResult = 0;
                                 int divResult = hashID;
 
-                                //convert to binary and grab i least significant bits
+                                // BitMask calc
                                 bitMask = leastSigBits(bitMask, xorResult, divResult);
 
-                                //check for bit flip
+                                // Bit flip inspection
                                 if(bitMask > blockDirectory.at(n-1)){
-                                    //perform the bit flip
+                                    // Flip bit
                                     int xorRes = pow(10, i-1);
                                     bitMask = bitMask - xorRes;
                                 }
-                                //check if it needs to be moved
+                                // Determine if bitflipped record must be moved
                                 if(bitMask != blockDirectory.at(j)){
-                                    //find the correct block
+
+                                    // Determine correct block to move bit flipped record to
                                     for(int k = 0; k < n; k++){
                                         if(blockDirectory.at(k) == bitMask){
                                             j = k;
                                         }
                                     }
 
-                                    //delete it from the original location
-
-                                    //turn the stringstream back into a c string
+                                    // Convert the stringstream to a c string
                                     stringBuffer = strStream.str();
                                     strStream.clear();
                                     char* blockBuffer = new char[BLOCK_SIZE + 1];
@@ -559,18 +550,16 @@ private:
                                     strcpy(blockBuffer, (stringBuffer).c_str());
                                     stringBuffer.clear();
 
-                                    //build blank record and slot
+                                    // Construct the new template record
                                     int templateRecordLen = 8 + 8 + 4 + tmpRecord.name.length() + tmpRecord.bio.length();
                                     string templateRecord;
                                     templateRecord.append(templateRecordLen, ' ');
                                     string slotEmpty = "            ";
 
-                                    //put the new record in
-                                    stringWrite(templateRecord, &blockBuffer, posnOfRecord);
-                                    //put the new slot in
+                                    stringWrite(templateRecord, &blockBuffer, posnOfRecord);              
                                     stringWrite(slotEmpty, &blockBuffer, slotPosition);
 
-                                    //send the data into the file
+                                    // Write the block buffer to the file
                                     ofstream outputFile;
                                     outputFile.open(fName, ios::in | ios::ate | ios::binary);
                                     if(overflowBucketIndex == 0){
@@ -584,7 +573,7 @@ private:
 
                                     delete[] blockBuffer;
 
-                                    //move the record
+                                    // Transfer record to new block
                                     insertRecordIntoIndexIntoBlock(tmpRecord);
                                     numRecords++;
                                 }
@@ -610,20 +599,16 @@ public:
         numRecords = 0;
         nextFreeBlock = 0;
         fName = indexFileName;
-        // Create your EmployeeIndex file and write out the initial 4 buckets
-        // make sure to account for the created buckets by incrementing nextFreeBlock appropriately
-
-        //open the index file
         ofstream outputFile;
+
         outputFile.open(indexFileName, ios::binary);
 
-        //make a new page, and put the empty pointer at the end
+        // Initialize the index file with 256 pages of empty blocks
         char* newPage = new char[4096];
         string filePointer = "{0000000000}";
         memset(newPage, ' ', 4096);
         stringWrite(filePointer, &newPage, 4084);
 
-        //declare buffer and fill with spaces
         for(int i = 0; i < 256; i++){
             outputFile.write(newPage, 4096);
         }
@@ -636,88 +621,73 @@ public:
     // Read csv file and add records to the index
     void createFromFile(string csvFName) {
 
-        //open the input file
         ifstream inputFile;
         inputFile.open(csvFName);
-
-        //start reading from the file
         string currentLine;
         string eid;
         string managerID;
         string name;
         string bio;
 
-        
-        //loop until all records have been sent to the insert function
+        // Loop and insert records into index
         while(true){
             
-            //process the id element
             if(getline(inputFile, currentLine, ',')){
                 eid = currentLine;
-                
-                //process the name element
+
                 getline(inputFile, currentLine, ',');
                 name = currentLine;
-    
-                //process the bio element
+
                 getline(inputFile, currentLine, ',');
                 bio = currentLine;
-    
-                //process the manager id element
+
                 getline(inputFile, currentLine);
                 managerID = currentLine;
                 
                 vector<string> fieldArray{eid, name, bio, managerID};
                 Record createRecord(fieldArray);
     
-                //send the record to insertRecordIntoIndex
+                // Pass the record to the insert function
                 insertRecordIntoIndex(createRecord);
                 
             }
-            //if the getline is invalid, that means there is no new line, break out and close the input file
+            // No newline, break
             else{
                 break;
             }
-
         }
-
-        //close the input file
         inputFile.close();
     }
 
     // Given an ID, find the relevant record and print it
     void findRecordById(int searchId) {
 
-        //hash the id
-        //compute the hash function "id mod 216"
         int hashID = searchId%216;
         int bitMask = 0;
         int xorResult = 0;
         int divResult = hashID;
 
-        //convert to binary and grab i least significant bits
+        // BitMask calc
         bitMask = leastSigBits( bitMask,  xorResult,  divResult); 
 
-        //check for bit flip
+        // Bit flip inspection
         if(bitMask > blockDirectory.at(n-1)){
-            //perform the bit flip
+            // Flip bit
             int xorRes = pow(10, i-1);
             bitMask = bitMask - xorRes;
         }
 
-        //based on the binary result, determine which block to go to, j represents the block number
+        // Use bitmask to find the correct block
         for(int k = 0; k < n; k++){
             if(blockDirectory.at(k) == bitMask){
                 j = k;
             }
         }
 
-        //traverse the pages until you find the end
         int slotPosn = 0;
         int overflowBucketIndex = 0;
 
         while(true){
-            //open the file and snatch a page
             ifstream inputFile;
             inputFile.open(fName, ios::binary);
 
@@ -728,7 +698,7 @@ public:
                 inputFile.seekg(overflowBucketIndex);
             }
 
-            //convert the c string to a silly stringstream teehee
+             // Convert the c string to a stringstream
             char* blockBuffer = new char[BLOCK_SIZE + 1];
             inputFile.read(blockBuffer, BLOCK_SIZE);
             blockBuffer[BLOCK_SIZE] = '\0';
@@ -737,68 +707,59 @@ public:
             stringstream strStream;
             strStream.str(stringBuffer);
             stringBuffer.clear();
-
             inputFile.close();
 
-            //string stringBuffer;
-
-            //establish the first slot position
+            // Determine position of the first slot
             if(slotPosn == 0){
-
                 if (getline(strStream, stringBuffer, '[')){
-                    //we found a slot
                     if(strStream.tellg() != -1){
 
-                        //take account of the position
                         slotPosn = strStream.tellg();
                         int slotPosition = strStream.tellg();
                         slotPosition--;
 
-                        //operate on the record
-
-                        //grab the record offset and seek to the record
+                        // From record offset, seek to record position in stream
                         getline(strStream, stringBuffer, '*');
                         int posnOfRecord = stoi(stringBuffer);
                         strStream.seekg(stoi(stringBuffer));
-                        //grab the id
+                       
                         getline(strStream, stringBuffer, '%');
                         string id = stringBuffer;
-                        //grab the name
+                
                         getline(strStream, stringBuffer, '%');
                         string name = stringBuffer;
-                        //grab the bio
+                      
                         getline(strStream, stringBuffer, '%');
                         string bio = stringBuffer;
-                        //grab the managerid
+                        
                         getline(strStream, stringBuffer, '%');
                         string managerID = stringBuffer;
 
-                        //print
                         if(stoi(id) == searchId){
-                            //print
                             vector<string> fieldArray{id, name, bio, managerID};
                             Record createRecord(fieldArray);
-
                             cout << endl;
                             createRecord.print();
                             cout << endl;
                         }
 
                     }
-                    //there are no slots
-                    else{
-                        //reset the stringstream since the error bit got set
+                    else {
+
+                         // Convert the stringstream to a c string for error bit
                         strStream.clear();
                         ifstream inputFile;
                         inputFile.open(fName, ios::binary);
-                        //find the correct place to reset at
+
+                         // Determine correct block to move bit flipped record to
                         if(overflowBucketIndex == 0){
                             inputFile.seekg(BLOCK_SIZE*j);
                         }
                         else{
                             inputFile.seekg(overflowBucketIndex);
                         }
-                        //convert the c string to a silly stringstream teehee
+
+                         // Convert the c string to a stringstream
                         char* blockBuffer = new char[BLOCK_SIZE + 1];
                         inputFile.read(blockBuffer, BLOCK_SIZE);
                         blockBuffer[BLOCK_SIZE] = '\0';
@@ -807,14 +768,14 @@ public:
                         stringstream strStream;
                         strStream.str(stringBuffer);
                         stringBuffer.clear();
-
                         inputFile.close();
-                        //grab the overflow pointer
+
+                        // Retrieve the pointer to the overflow block
                         strStream.seekg(BLOCK_SIZE-11);
                         getline(strStream, stringBuffer, '}');
                         int ptrOverflowBucket = stoi(stringBuffer);
 
-                        //check for overflow page
+                        // Determine if there is an overflow page
                         if(ptrOverflowBucket == 0){
                             strStream.clear();
                             break;
@@ -827,13 +788,17 @@ public:
                     }
                 }
             }
-            //we already found a slot in this page
-            else{
-                //change the slot counter by 12, 
+
+            // Slot found
+            else {
+
+                // Increment slot position
                 slotPosn += 12;
-                //if we're at 4084, we're at the end of the page
+
+                 // End of page reached
                 if(slotPosn == 4085){
-                    //grab the overflow pointer
+
+                    // Retrieve the pointer to the overflow block
                     strStream.seekg(BLOCK_SIZE-11);
                     getline(strStream, stringBuffer, '}');
                     int ptrOverflowBucket = stoi(stringBuffer);
@@ -847,50 +812,41 @@ public:
                         slotPosn = 0;
                     }
                 }
-                else{
-                    //check if it's spaces
+                else {
                     strStream.seekg(slotPosn);
 
-                    //if not spaces, grab the record and operate on it
+                     // If not empty space, get record
                     if((strStream.str())[slotPosn] != ' '){
-                        //hash it
-
                         int slotPosition = strStream.tellg();
                         slotPosition--;
-                        
-                        //operate on the record
-                        //grab the record offset and seek to the record
+                      
+                        // From record offset, seek to record position in stream
                         getline(strStream, stringBuffer, '*');
                         strStream.seekg(stoi(stringBuffer));
                         int posnOfRecord = stoi(stringBuffer);
-                        //grab the id
+                       
                         getline(strStream, stringBuffer, '%');
                         string id = stringBuffer;
-                        //grab the name
+                
                         getline(strStream, stringBuffer, '%');
                         string name = stringBuffer;
-                        //grab the bio
+                      
                         getline(strStream, stringBuffer, '%');
                         string bio = stringBuffer;
-                        //grab the managerid
+                        
                         getline(strStream, stringBuffer, '%');
                         string managerID = stringBuffer;
 
                         if(stoi(id) == searchId){
-                            //print
                             vector<string> fieldArray{id, name, bio, managerID};
                             Record createRecord(fieldArray);
                             cout << endl;
                             createRecord.print();
                             cout << endl;
                         }
-
                     }
-
                 }
-
             }
-
         }
     }
 };
