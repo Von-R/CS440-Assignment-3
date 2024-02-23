@@ -47,47 +47,47 @@ private:
     int nextFreeOverflow;
     string fName;      // Name of index file
     int hashResult;
+    string pageBuffer;
 
-    void stringWrite(const std::string& toCopy, char** copyHere, int location) {
-    std::copy(toCopy.begin(), toCopy.end(), *copyHere + location);
+    void replaceString(string toCopy, char** copyHere, int location){
+
+        for(int i = 0; i < toCopy.length(); i++){
+            
+            (*copyHere)[i+location] = toCopy[i];
+        }
+
     }
 
-
-    // Put a record into the correct block
     void putRecord(Record record){
 
         string inputBuffer;
 
         int currReadLocation = j*BLOCK_SIZE;
 
-        // Dynamically calculate the size of the new record
+        //the size needed to store the new record and its corresponding slot dir slot
         int newRecordLength = 8 + 8 + record.bio.length() + record.name.length() + 4 + 12;
 
         while(true)
         {
             ifstream inFile;
             inFile.open(fName, ios::binary);
-            // Seek to the correct block to read from
             inFile.seekg(currReadLocation);
 
             //declare the c style buffer to read in the block
             char* pageDataBuffer = new char[BLOCK_SIZE + 1];
-            // Read the block into the buffer
             inFile.read(pageDataBuffer, BLOCK_SIZE);
-            // Null terminate the buffer
             pageDataBuffer[BLOCK_SIZE] = '\0';
 
             inFile.close();
 
-            // Convert to string
+            //set the buffer to a normal string and delete the c string
             string stringBuffer = pageDataBuffer;
-            // Free memory
             delete[] pageDataBuffer;
 
             //set the buffer to a stringstream and delete the normal string
             stringstream myStrStrm;
             myStrStrm.str(stringBuffer);
-            // stringBuffer.clear();
+            stringBuffer.clear();
 
             int slotDirStart = BLOCK_SIZE - 12;
             int sizeOfSlotDir = 0;
@@ -97,9 +97,7 @@ private:
             //determine how much space is currently available in the determined block, go to the slot dir and add up the offsets
             if (getline(myStrStrm, inputBuffer, '[')){
                 //if the getline was valid
-            
                 if(myStrStrm.tellg() != -1){
-                    // GEt the position of the slot dir
                     slotDirStart = myStrStrm.tellg();
                     slotDirStart--;
                     sizeOfSlotDir = BLOCK_SIZE - slotDirStart;
@@ -115,7 +113,6 @@ private:
                     
                 }
                 //if the getline was invalid and cause a stringstream fail, reset the stringstream and move on
-                /*
                 else{
                     myStrStrm.clear();
                     ifstream inFile;
@@ -138,7 +135,6 @@ private:
                     myStrStrm.str(stringBuffer);
                     stringBuffer.clear();
                 }
-                */
             }
 
             //if space, insert
@@ -162,9 +158,9 @@ private:
                 //cout << newSlot << endl;
 
                 //put the new record in
-                stringWrite(newRecord, &pageDataBuffer, (lastOff + lastLen));
+                replaceString(newRecord, &pageDataBuffer, (lastOff + lastLen));
                 //put the new slot in
-                stringWrite(newSlot, &pageDataBuffer, (slotDirStart - 12));
+                replaceString(newSlot, &pageDataBuffer, (slotDirStart - 12));
 
                 //send the data into the file
                 ofstream outFile;
@@ -208,7 +204,7 @@ private:
 
                     int placementLength = (BLOCK_SIZE-(newPointer.length()+1));
 
-                    stringWrite(newPointer, &pageDataBuffer, placementLength);
+                    replaceString(newPointer, &pageDataBuffer, placementLength);
 
                     //seek to the correct position in the file
                     //Write contents to the file
@@ -219,7 +215,7 @@ private:
 
                     string filePointer = "{0000000000}";
                     memset(pageDataBuffer, ' ', BLOCK_SIZE);
-                    stringWrite(filePointer, &pageDataBuffer, 4084);
+                    replaceString(filePointer, &pageDataBuffer, 4084);
 
                     outFile.seekp(stoi(newPointer));
                     outFile.write(pageDataBuffer, BLOCK_SIZE);
@@ -284,7 +280,7 @@ private:
         if(binResult > blockDirectory.at(n-1)){
             //perform the bit flip
             int xorFella = pow(10, i-1);
-            binResult ^= xorFella;
+            binResult = binResult - xorFella;
         }
 
         //based on the binary result, determine which block to go to, j represents the block number
@@ -424,7 +420,7 @@ private:
                                 if(binResult > blockDirectory.at(n-1)){
                                     //perform the bit flip
                                     int xorFella = pow(10, i-1);
-                                    binResult ^= xorFella;
+                                    binResult = binResult - xorFella;
                                 }
 
                                 //check if it needs to be moved
@@ -453,9 +449,9 @@ private:
                                     string blankSlot = "            ";
 
                                     //put the new record in
-                                    stringWrite(blankRecord, &pageDataBuffer, recordPosition);
+                                    replaceString(blankRecord, &pageDataBuffer, recordPosition);
                                     //put the new slot in
-                                    stringWrite(blankSlot, &pageDataBuffer, slotPosition);
+                                    replaceString(blankSlot, &pageDataBuffer, slotPosition);
 
                                     //send the data into the file
                                     ofstream outFile;
@@ -593,9 +589,8 @@ private:
                                 if(binResult > blockDirectory.at(n-1)){
                                     //perform the bit flip
                                     int xorFella = pow(10, i-1);
-                                    binResult ^= xorFella;
+                                    binResult = binResult - xorFella;
                                 }
-
                                 //check if it needs to be moved
                                 if(binResult != blockDirectory.at(j)){
                                     //find the correct block
@@ -622,9 +617,9 @@ private:
                                     string blankSlot = "            ";
 
                                     //put the new record in
-                                    stringWrite(blankRecord, &pageDataBuffer, recordPosition);
+                                    replaceString(blankRecord, &pageDataBuffer, recordPosition);
                                     //put the new slot in
-                                    stringWrite(blankSlot, &pageDataBuffer, slotPosition);
+                                    replaceString(blankSlot, &pageDataBuffer, slotPosition);
 
                                     //send the data into the file
                                     ofstream outFile;
@@ -676,7 +671,7 @@ public:
         char* newPage = new char[4096];
         string filePointer = "{0000000000}";
         memset(newPage, ' ', 4096);
-        stringWrite(filePointer, &newPage, 4084);
+        replaceString(filePointer, &newPage, 4084);
 
         //declare buffer and fill with spaces
         for(int i = 0; i < 256; i++){
@@ -764,7 +759,7 @@ public:
         if(binResult > blockDirectory.at(n-1)){
             //perform the bit flip
             int xorFella = pow(10, i-1);
-            binResult ^= xorFella;
+            binResult = binResult - xorFella;
         }
 
         //based on the binary result, determine which block to go to, j represents the block number
@@ -841,7 +836,9 @@ public:
                             vector<string> myVector{id, name, bio, manid};
                             Record myRecord(myVector);
 
+                            cout << endl;
                             myRecord.print();
+                            cout << endl;
                         }
 
                     }
@@ -940,9 +937,9 @@ public:
                             //print
                             vector<string> myVector{id, name, bio, manid};
                             Record myRecord(myVector);
-
+                            cout << endl;
                             myRecord.print();
-
+                            cout << endl;
                         }
 
                     }
@@ -952,6 +949,5 @@ public:
             }
 
         }
-
     }
 };
